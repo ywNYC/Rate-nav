@@ -1,0 +1,1957 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>Rate Navigator by JMJ | 房贷利率导航</title>
+<meta name="description" content="Professional mortgage decision tools: ARM vs Fixed, Points Comparison, Refinance Analysis, 1031 Exchange" />
+<meta name="theme-color" content="#2D9B65" />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%232D9B65'/><path d='M16 6L8 14V26H12V20H20V26H24V14L16 6Z' fill='white'/></svg>" />
+<style>*{margin:0;padding:0;box-sizing:border-box}body{background:#F5F8F2;overflow-x:hidden;-webkit-font-smoothing:antialiased}#root{min-height:100vh}</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/recharts/2.12.7/Recharts.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.24.7/babel.min.js"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+
+/* 
+   SHARED: helpers, palette, components
+    */
+const fmt = (n) => n.toLocaleString("en-US", { maximumFractionDigits: 0 });
+const fmtD = (n) => "$" + fmt(Math.round(n));
+const fmtP = (n) => n.toFixed(3) + "%";
+
+function pmtCalc(annualRate, totalMonths, principal) {
+  if (annualRate === 0) return principal / totalMonths;
+  const r = annualRate / 100 / 12;
+  return (principal * r * Math.pow(1 + r, totalMonths)) / (Math.pow(1 + r, totalMonths) - 1);
+}
+
+function calcAPR(noteRate, loanAmount, pointCost, totalMonths) {
+  if (pointCost <= 0) return noteRate;
+  const payment = pmtCalc(noteRate, totalMonths, loanAmount);
+  const netProceeds = loanAmount - pointCost;
+  let lo = noteRate * 0.5, hi = noteRate * 3;
+  for (let i = 0; i < 80; i++) {
+    const mid = (lo + hi) / 2;
+    const r = mid / 100 / 12;
+    const pv = r === 0 ? payment * totalMonths : payment * (1 - Math.pow(1 + r, -totalMonths)) / r;
+    if (pv > netProceeds) lo = mid; else hi = mid;
+  }
+  return Math.round(((lo + hi) / 2) * 1000) / 1000;
+}
+
+const RATE_PER_POINT = 0.25;
+
+const C = {
+  bg: "#F5F8F2", card: "#FFFFFF", cardAlt: "#EFF4EA",
+  border: "#DDE6D5", borderLight: "#E8EFE2",
+  arm: "#2D9B65", armLight: "#E6F4ED", armGlow: "rgba(45,155,101,0.12)",
+  fixed: "#5485E0", fixedLight: "#EAF0FC",
+  warn: "#D98E30", warnLight: "#FDF3E5",
+  danger: "#D45555", dangerLight: "#FCEAEA",
+  purple: "#7C5FC2", purpleLight: "#F0ECFA",
+  text: "#1B2E1B", textSec: "#486848", textDim: "#88A488", textMuted: "#AABFAA",
+  white: "#FFFFFF", shadow: "0 4px 20px rgba(30,60,30,0.06)", shadowHover: "0 8px 32px rgba(30,60,30,0.10)",
+};
+const FONT = `'Noto Sans SC','SF Pro Display',-apple-system,sans-serif`;
+const MONO = `'JetBrains Mono','SF Mono',monospace`;
+
+function LogoSVG({ size = 32 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 40 40" fill="none">
+      <rect width="40" height="40" rx="10" fill={C.arm} />
+      <path d="M20 8L10 18V30H16V24H24V30H30V18L20 8Z" fill="white" fillOpacity="0.95" />
+      <path d="M14 20L18 16L22 20" stroke={C.arm} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M22 20L26 24" stroke={C.arm} strokeWidth="2" strokeLinecap="round" strokeDasharray="1 2" />
+      <circle cx="28" cy="12" r="5" fill="white" fillOpacity="0.2" />
+      <path d="M26 12H30M28 10V14" stroke="white" strokeWidth="1.2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function RateInput({ label, labelEn, value, onChange, min, max, step, color }) {
+  const pct = ((value - min) / (max - min)) * 100;
+  const [editing, setEditing] = React.useState(false);
+  const [draft, setDraft] = React.useState("");
+  const startEdit = () => { setDraft(value.toFixed(3)); setEditing(true); };
+  const commitEdit = () => {
+    const v = parseFloat(draft);
+    if (!isNaN(v) && v >= min && v <= max) onChange(Math.round(v * 1000) / 1000);
+    setEditing(false);
+  };
+  return (
+    <div style={{ marginBottom: 18 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 7 }}>
+        <div>
+          <span style={{ fontSize: 13, color: C.text, fontWeight: 600 }}>{label}</span>
+          {labelEn && <span style={{ fontSize: 10, color: C.textMuted, marginLeft: 6 }}>{labelEn}</span>}
+        </div>
+        {editing ? (
+          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            <input autoFocus type="number" value={draft} onChange={e => setDraft(e.target.value)}
+              onBlur={commitEdit} onKeyDown={e => e.key === "Enter" && commitEdit()}
+              style={{ width: 72, fontSize: 15, fontWeight: 700, fontFamily: MONO, color: color || C.arm,
+                border: `1.5px solid ${color || C.arm}`, borderRadius: 8, padding: "3px 8px",
+                background: C.white, outline: "none", textAlign: "right" }} />
+            <span style={{ fontSize: 14, color: color || C.arm, fontWeight: 700 }}>%</span>
+          </div>
+        ) : (
+          <span onClick={startEdit} style={{
+            fontSize: 16, color: color || C.arm, fontWeight: 700, fontFamily: MONO, cursor: "pointer",
+            padding: "2px 8px", borderRadius: 6, border: `1px dashed ${C.border}`,
+          }}>{value.toFixed(3)}%</span>
+        )}
+      </div>
+      <input type="range" min={min} max={max} step={step} value={value}
+        onChange={e => onChange(Math.round(Number(e.target.value) * 1000) / 1000)}
+        style={{ width: "100%", height: 5, borderRadius: 3, outline: "none",
+          appearance: "none", WebkitAppearance: "none", cursor: "pointer",
+          background: `linear-gradient(to right, ${color || C.arm} 0%, ${color || C.arm} ${pct}%, ${C.border} ${pct}%, ${C.border} 100%)`,
+        }} />
+    </div>
+  );
+}
+
+function AmountSlider({ label, labelEn, value, onChange, min, max, step, color }) {
+  const pct = ((value - min) / (max - min)) * 100;
+  const [editing, setEditing] = React.useState(false);
+  const [draft, setDraft] = React.useState("");
+  const startEdit = () => { setDraft(String(value)); setEditing(true); };
+  const commitEdit = () => {
+    const v = parseInt(draft.replace(/[^0-9]/g, ""), 10);
+    if (!isNaN(v) && v >= min && v <= max) onChange(v);
+    setEditing(false);
+  };
+  return (
+    <div style={{ marginBottom: 18 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 7 }}>
+        <div>
+          <span style={{ fontSize: 13, color: C.text, fontWeight: 600 }}>{label}</span>
+          {labelEn && <span style={{ fontSize: 10, color: C.textMuted, marginLeft: 6 }}>{labelEn}</span>}
+        </div>
+        {editing ? (
+          <input autoFocus type="text" value={draft} onChange={e => setDraft(e.target.value)}
+            onBlur={commitEdit} onKeyDown={e => e.key === "Enter" && commitEdit()}
+            style={{ width: 110, fontSize: 15, fontWeight: 700, fontFamily: MONO, color: color || C.arm,
+              border: `1.5px solid ${color || C.arm}`, borderRadius: 8, padding: "3px 8px",
+              background: C.white, outline: "none", textAlign: "right" }} />
+        ) : (
+          <span onClick={startEdit} style={{
+            fontSize: 16, color: color || C.arm, fontWeight: 700, fontFamily: MONO, cursor: "pointer",
+            padding: "2px 8px", borderRadius: 6, border: `1px dashed ${C.border}`,
+          }}>{fmtD(value)}</span>
+        )}
+      </div>
+      <input type="range" min={min} max={max} step={step} value={value}
+        onChange={e => onChange(Number(e.target.value))}
+        style={{ width: "100%", height: 5, borderRadius: 3, outline: "none",
+          appearance: "none", WebkitAppearance: "none", cursor: "pointer",
+          background: `linear-gradient(to right, ${color || C.arm} 0%, ${color || C.arm} ${pct}%, ${C.border} ${pct}%, ${C.border} 100%)`,
+        }} />
+    </div>
+  );
+}
+
+function StatCard({ label, labelEn, value, sub, color, highlight }) {
+  return (
+    <div style={{
+      background: highlight || C.card, borderRadius: 16, padding: "14px 12px",
+      border: `1px solid ${C.borderLight}`, flex: 1, minWidth: 0, boxShadow: C.shadow,
+    }}>
+      <div style={{ fontSize: 11, color: C.textDim, fontWeight: 600, lineHeight: 1.3 }}>{label}</div>
+      {labelEn && <div style={{ fontSize: 8, color: C.textMuted, marginBottom: 4 }}>{labelEn}</div>}
+      <div style={{ fontSize: 19, fontWeight: 700, color: color || C.text, fontFamily: MONO, lineHeight: 1.2, marginTop: 2 }}>{value}</div>
+      {sub && <div style={{ fontSize: 10, color: C.textDim, marginTop: 3, lineHeight: 1.3 }}>{sub}</div>}
+    </div>
+  );
+}
+
+function GlossaryItem({ term, cn, desc, descEn, en: isEn }) {
+  const [open, setOpen] = React.useState(false);
+  return (
+    <div style={{ borderBottom: `1px solid ${C.borderLight}`, paddingBottom: open ? 10 : 0, marginBottom: 2 }}>
+      <button onClick={() => setOpen(!open)} style={{
+        width: "100%", padding: "10px 0", border: "none", background: "none",
+        cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", fontFamily: FONT,
+      }}>
+        <div style={{ textAlign: "left" }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: C.arm, fontFamily: MONO }}>{term}</span>
+          {!isEn && <span style={{ fontSize: 12, color: C.text, fontWeight: 600, marginLeft: 8 }}>{cn}</span>}
+        </div>
+        <span style={{ fontSize: 14, color: C.textDim, transform: open ? "rotate(180deg)" : "", transition: "transform .2s" }}>⌄</span>
+      </button>
+      {open && <div style={{ fontSize: 12, color: C.textSec, lineHeight: 1.7, padding: "0 0 4px", animation: "fadeIn .2s ease-out" }}>{isEn && descEn ? descEn : desc}</div>}
+    </div>
+  );
+}
+
+function GlossarySection({ terms, en: isEn }) {
+  return (
+    <div style={{ background: C.card, border: `1px solid ${C.borderLight}`, borderRadius: 18, padding: "18px 18px 10px", boxShadow: C.shadow }}>
+      <div style={{ fontSize: 15, fontWeight: 700, color: C.text, marginBottom: 4 }}>{isEn? "📖 Glossary" : "📖 术语解释"}</div>
+      <div style={{ fontSize: 10, color: C.textMuted, marginBottom: 14 }}>{isEn? "Tap to expand" : "Glossary · 点击展开详情"}</div>
+      {terms.map((t, i) => <GlossaryItem key={i} {...t} en={isEn} />)}
+      <div style={{ textAlign: "center", padding: "8px 0 4px", fontSize: 9, color: C.textMuted, opacity: 0.5 }}>© JMJ · Rate Navigator</div>
+    </div>
+  );
+}
+
+function BrandingFooter() {
+  return (
+    <div style={{ padding: "20px 16px 8px", textAlign: "center" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginBottom: 6 }}>
+        <LogoSVG size={20} />
+        <span style={{ fontSize: 11, fontWeight: 600, color: C.textDim, letterSpacing: 0.5 }}>Rate Navigator</span>
+      </div>
+      <div style={{ fontSize: 10, color: C.textMuted, lineHeight: 1.6 }}>Product by JMJ. All rights reserved.</div>
+      <div style={{ fontSize: 9, color: C.textMuted, marginTop: 4, opacity: 0.6, lineHeight: 1.5 }}>
+        For informational purposes only. Not financial advice.
+      </div>
+    </div>
+  );
+}
+
+/* Shared style tag */
+function GlobalStyles() {
+  return (
+    <style>{`
+      @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600;700&display=swap');
+      input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:22px;height:22px;border-radius:50%;background:${C.white};cursor:pointer;border:3px solid ${C.arm};box-shadow:0 2px 8px ${C.arm}40,0 0 0 4px ${C.arm}10;transition:box-shadow .2s}
+      input[type=range]::-webkit-slider-thumb:active{box-shadow:0 2px 12px ${C.arm}60,0 0 0 6px ${C.arm}15}
+      input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;background:${C.white};cursor:pointer;border:3px solid ${C.arm};box-shadow:0 2px 8px ${C.arm}40}
+      input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+      input[type=number]{-moz-appearance:textfield}
+      *{box-sizing:border-box;margin:0;padding:0}
+      body{background:${C.bg}}
+      @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+      @keyframes slideUp{from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:translateY(0)}}
+      @keyframes cardIn{from{opacity:0;transform:translateY(12px) scale(0.97)}to{opacity:1;transform:translateY(0) scale(1)}}
+      @keyframes shimmer{from{background-position:-200% 0}to{background-position:200% 0}}
+      select{transition:border-color .2s}select:focus{border-color:${C.arm}!important;box-shadow:0 0 0 3px ${C.arm}12}
+      button{transition:transform .1s,box-shadow .15s}button:active{transform:scale(0.96)}
+      ::-webkit-scrollbar{width:3px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:${C.border};border-radius:3px}
+    `}</style>
+  );
+}
+
+/* 
+   HOME PAGE
+    */
+function HomePage({ onNavigate, lang, setLang }) {
+  const isEn = lang === "en";
+  const tools = [
+    {
+      id: "arm",
+      icon: (
+        <svg width="44" height="44" viewBox="0 0 48 48" fill="none">
+          <rect width="48" height="48" rx="14" fill={C.arm} />
+          <path d="M24 10L12 22V38H19V30H29V38H36V22L24 10Z" fill="white" fillOpacity="0.9" />
+          <path d="M15 24L21 18L27 24L33 20" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="1 3" />
+        </svg>
+      ),
+      title: isEn? "ARM vs Fixed Rate" : "ARM vs 固定利率",
+      sub: "ARM Rate Navigator",
+      desc: isEn? "Compare ARM and 30-year fixed mortgages across 8 rate scenarios with points analysis and APR calculation" : "对比浮动利率(ARM)和30年固定利率贷款，模拟8种利率走势情景，含买点分析和APR计算",
+      tags: isEn? ["Rate Scenarios", "Monthly Timeline", "APR", "Points"] : ["利率情景模拟", "月度时间轴", "APR", "买点"],
+      color: C.arm, bg: C.armLight,
+    },
+    {
+      id: "points",
+      icon: (
+        <svg width="44" height="44" viewBox="0 0 48 48" fill="none">
+          <rect width="48" height="48" rx="14" fill={C.fixed} />
+          <path d="M24 12L28 20L37 21L30.5 27.5L32 36L24 32L16 36L17.5 27.5L11 21L20 20L24 12Z" fill="white" fillOpacity="0.9" />
+          <circle cx="24" cy="24" r="4" fill={C.fixed} fillOpacity="0.6" />
+        </svg>
+      ),
+      title: isEn? "Points Comparison" : "买点方案对比",
+      sub: "Discount Points Comparison",
+      desc: isEn? "Compare different discount point options, calculate break-even time, monthly savings, and total cost to determine if buying points is worth it" : "对比固定利率贷款买不同点数的方案，计算回本时间、月供差异、总成本，帮你判断买点是否划算",
+      tags: isEn? ["Break-Even", "Multi-Compare", "APR", "Total Cost"] : ["回本时间", "多方案对比", "APR", "总成本"],
+      color: C.fixed, bg: C.fixedLight,
+    },
+    {
+      id: "refi",
+      icon: (
+        <svg width="44" height="44" viewBox="0 0 48 48" fill="none">
+          <rect width="48" height="48" rx="14" fill="#7C5FC2" />
+          <path d="M16 32V20L24 14L32 20V32" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+          <path d="M14 24L24 16L34 24" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+          <path d="M28 28H32L28 32H32" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      ),
+      title: isEn? "Refinance Analysis" : "再融资分析",
+      sub: "Refinance Analyzer",
+      desc: isEn? "Compare current vs new loan options, calculate closing costs (incl. NY mortgage tax / CEMA), analyze break-even and net savings" : "对比现有贷款和新贷款方案，计算Closing Cost（含NY抵押税/CEMA），分析回本时间和净节省",
+      tags: isEn? ["Closing Cost", "CEMA / Tax", "Break-Even", "Payment"] : ["Closing Cost", "CEMA/抵押税", "回本分析", "月供对比"],
+      color: C.purple, bg: C.purpleLight,
+    },
+    {
+      id: "exchange",
+      icon: (
+        <svg width="44" height="44" viewBox="0 0 48 48" fill="none">
+          <rect width="48" height="48" rx="14" fill="#D98E30" />
+          <path d="M14 20H30L26 16M34 28H18L22 32" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+          <text x="24" y="27" textAnchor="middle" fill="white" fontSize="8" fontWeight="700" fontFamily="sans-serif">1031</text>
+        </svg>
+      ),
+      title: isEn? "1031 Exchange" : "1031延税交换",
+      sub: "Tax-Deferred Exchange Analyzer",
+      desc: isEn? "Calculate capital gains tax deferred through 1031 exchange, timeline tracking, and replacement property requirements" : "计算1031交换可延税金额，追踪45/180天时间线，替代物业最低要求",
+      tags: isEn? ["Tax Deferred", "Timeline", "Cap Gains", "Replacement"] : ["延税计算", "时间线", "资本利得", "替代物业"],
+      color: C.warn, bg: C.warnLight,
+    },
+  ];
+
+  return (
+    <div style={{ fontFamily: FONT, background: C.bg, minHeight: "100vh", color: C.text, maxWidth: 480, margin: "0 auto", WebkitFontSmoothing: "antialiased" }}>
+      <GlobalStyles />
+      {/* Compact Hero */}
+      <div style={{
+        padding: "24px 20px 16px", textAlign: "center",
+        background: "linear-gradient(165deg, #E8F3E0 0%, #E0ECF6 40%, #EDE8F5 100%)",
+        borderBottom: "none",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, marginBottom: 8 }}>
+          <LogoSVG size={36} />
+          <div style={{ textAlign: "left" }}>
+            <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0, letterSpacing: -0.5 }}>{isEn? "Rate Navigator" : "房贷利率导航"}</h1>
+            <p style={{ fontSize: 10, color: C.textDim, margin: 0, fontWeight: 500, letterSpacing: 1 }}>RATE NAVIGATOR by JMJ</p>
+          </div>
+        </div>
+        <div style={{ display: "flex", justifyContent: "center" }}>
+          <div style={{ display: "flex", gap: 0, background: "rgba(255,255,255,0.55)", backdropFilter: "blur(8px)", borderRadius: 8, padding: 2 }}>
+            {[{ k: "cn", l: "中文" }, { k: "en", l: "EN" }].map(t => {
+              const a = t.k === lang;
+              return <button key={t.k} onClick={() => setLang(t.k)} style={{ padding: "5px 18px", borderRadius: 6, border: "none", cursor: "pointer", background: a ? C.arm : "transparent", color: a ? C.white : C.textDim, fontSize: 11, fontWeight: a ? 700 : 500, fontFamily: FONT, transition: "all .2s" }}>{t.l}</button>;
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* Tool Cards */}
+      <div style={{ padding: "14px 14px 8px" }}>
+        {tools.map((t, i) => (
+          <button key={t.id} onClick={() => onNavigate(t.id)} style={{
+            width: "100%", padding: 0, border: "none", background: "none", cursor: "pointer",
+            marginBottom: 10, animation: `cardIn .4s ease-out ${0.05 + i * 0.1}s both`,
+          }}>
+            <div style={{
+              background: C.card, border: `1px solid ${C.borderLight}`, borderRadius: 18,
+              padding: "16px 16px", boxShadow: C.shadow, textAlign: "left",
+              transition: "box-shadow .2s, transform .2s",
+            }}>
+              <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+                <div style={{ flexShrink: 0, transform: "scale(0.82)", transformOrigin: "center" }}>{t.icon}</div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+                    <span style={{ fontSize: 15, fontWeight: 700, color: C.text }}>{t.title}</span>
+                  </div>
+                  <div style={{ fontSize: 11, color: C.textSec, lineHeight: 1.4, marginTop: 3 }}>{isEn?(t.descEn||t.desc):t.desc}</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 3, marginTop: 6 }}>
+                    {t.tags.map(tag => (
+                      <span key={tag} style={{ fontSize: 9, padding: "2px 6px", borderRadius: 5, background: t.bg, color: t.color, fontWeight: 600 }}>{tag}</span>
+                    ))}
+                  </div>
+                </div>
+                <div style={{ fontSize: 18, color: C.textMuted, flexShrink: 0 }}>›</div>
+              </div>
+            </div>
+          </button>
+        ))}
+      </div>
+
+      <div style={{ textAlign: "center", padding: "4px 0 12px", fontSize: 9, color: C.textMuted, opacity: 0.5 }}>
+        Product by JMJ. All rights reserved.
+      </div>
+    </div>
+  );
+}
+
+/* 
+   TOOL 1: ARM NAVIGATOR (existing, compacted)
+    */
+const ARM_TYPES = [
+  { label: "3/1", fixed: 3, desc: "3年固定", descEn: "3yr fixed" }, { label: "5/1", fixed: 5, desc: "5年固定", descEn: "5yr fixed" },
+  { label: "7/1", fixed: 7, desc: "7年固定", descEn: "7yr fixed" }, { label: "10/1", fixed: 10, desc: "10年固定", descEn: "10yr fixed" },
+];
+const SCENARIOS = [
+  { key: "sharp_rise", label: "急剧上涨", labelEn: "Sharp Rise", icon: "🔥", color: C.danger, desc: "+0.3~0.5%/yr", descEn: "+0.3~0.5%/yr" },
+  { key: "mod_rise",   label: "温和上涨", labelEn: "Moderate Rise", icon: "📈", color: C.warn, desc: "+0.1~0.2%/yr", descEn: "+0.1~0.2%/yr" },
+  { key: "rise_flat",  label: "先涨后平", labelEn: "Rise then Flat", icon: "⛰️", color: "#B8860B", desc: "前期涨后期稳", descEn: "Rise early, flat later" },
+  { key: "flat",       label: "平稳波动", labelEn: "Stable", icon: "〰️", color: C.fixed, desc: "±0.03%微幅", descEn: "±0.03% minor" },
+  { key: "v_shape",    label: "V型反转", labelEn: "V-Shape", icon: "✅", color: "#6B8E23", desc: "先降后涨", descEn: "Drop then rise" },
+  { key: "inv_v",      label: "倒V走势", labelEn: "Inv-V", icon: "🔻", color: "#9370DB", desc: "先涨后降", descEn: "Rise then drop" },
+  { key: "mod_fall",   label: "温和下降", labelEn: "Moderate Fall", icon: "📉", color: C.arm, desc: "-0.1~0.2%/yr", descEn: "-0.1~0.2%/yr" },
+  { key: "sharp_fall", label: "急剧下降", labelEn: "Sharp Fall", icon: "❄️", color: "#2196F3", desc: "-0.3~0.4%/yr", descEn: "-0.3~0.4%/yr" },
+];
+
+function buildArmMonthly(principal, armQuoteRate, armPoints, fixedPeriod, scenario, periodicCap, lifetimeCap, termYears, seed) {
+  const initRate = armQuoteRate;
+  let s = seed;
+  const rand = () => { s = (s * 16807) % 2147483647; return (s - 1) / 2147483646; };
+  const noise = () => (rand() - 0.5) * 0.03;
+  const schedule = []; let balance = principal, currentRate = initRate, totalInterest = 0;
+  const totalMonths = termYears * 12, fixedMonths = fixedPeriod * 12;
+  for (let m = 1; m <= totalMonths; m++) {
+    if (m > fixedMonths && (m - fixedMonths - 1) % 12 === 0) {
+      const adjY = Math.floor((m - fixedMonths - 1) / 12), totalAdj = termYears - fixedPeriod, prog = adjY / totalAdj;
+      let d = 0;
+      switch (scenario) {
+        case "sharp_rise": d = 0.35 + rand()*0.15+noise(); break;
+        case "mod_rise": d = 0.12+rand()*0.08+noise(); break;
+        case "rise_flat": d = adjY<totalAdj*0.4?(0.25+rand()*0.12+noise()):(noise()*1.5); break;
+        case "flat": d = (rand()-0.5)*0.06+noise(); break;
+        case "v_shape": d = prog<0.45?-(0.18+rand()*0.08+noise()):(0.22+rand()*0.10+noise()); break;
+        case "inv_v": d = prog<0.45?(0.22+rand()*0.10+noise()):-(0.18+rand()*0.08+noise()); break;
+        case "mod_fall": d = -(0.10+rand()*0.08)+noise(); break;
+        case "sharp_fall": d = -(0.28+rand()*0.12)+noise(); break;
+        default: d = noise();
+      }
+      let nr = Math.round((currentRate+d)*100)/100;
+      if(nr-currentRate>periodicCap) nr=currentRate+periodicCap;
+      if(currentRate-nr>periodicCap) nr=currentRate-periodicCap;
+      nr = Math.min(Math.max(nr, initRate), initRate+lifetimeCap);
+      currentRate = Math.round(nr*100)/100;
+    }
+    const rm = totalMonths-m+1, mp = pmtCalc(currentRate,rm,balance);
+    const ip = balance*(currentRate/100/12), pp = mp-ip;
+    balance = Math.max(0,balance-pp); totalInterest += ip;
+    schedule.push({ month:m, rate:currentRate, payment:mp, balance, totalInterest });
+  }
+  return schedule;
+}
+
+function buildFixedMonthly(principal, rate, termYears) {
+  const mp = pmtCalc(rate, termYears*12, principal);
+  const sch = []; let bal = principal, ti = 0;
+  for (let m = 1; m <= termYears*12; m++) {
+    const ip = bal*(rate/100/12); bal = Math.max(0,bal-(mp-ip)); ti += ip;
+    sch.push({ month:m, rate, payment:mp, balance:bal, totalInterest:ti });
+  }
+  return sch;
+}
+
+function MonthScrubber({ month, maxMonth, onChange, fixedMonths, en: isEn }) {
+  const ref = React.useRef(null);
+  const handle = React.useCallback(cx => {
+    if(!ref.current) return;
+    const r = ref.current.getBoundingClientRect();
+    onChange(Math.round(Math.max(0,Math.min(1,(cx-r.left)/r.width))*(maxMonth-1))+1);
+  },[maxMonth,onChange]);
+  const onDown = React.useCallback(e => {
+    e.preventDefault(); handle(e.clientX);
+    const mv = ev=>handle(ev.clientX);
+    const up = ()=>{window.removeEventListener("pointermove",mv);window.removeEventListener("pointerup",up);};
+    window.addEventListener("pointermove",mv); window.addEventListener("pointerup",up);
+  },[handle]);
+  const pct = ((month-1)/(maxMonth-1))*100, fixPct = ((fixedMonths-1)/(maxMonth-1))*100;
+  const inF = month<=fixedMonths, yr=Math.floor((month-1)/12)+1, mo=((month-1)%12)+1;
+  return (
+    <div>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+        <span style={{ fontSize:11, color:C.textDim, fontWeight:600, letterSpacing:0.8 }}>{isEn?"TIMELINE":"时间轴 TIMELINE"}</span>
+        <div style={{ display:"inline-flex", alignItems:"center", gap:6, padding:"5px 12px", borderRadius:20, background:inF?C.armLight:C.warnLight, border:`1px solid ${inF?C.arm:C.warn}18` }}>
+          <span style={{ width:7, height:7, borderRadius:"50%", background:inF?C.arm:C.warn }} />
+          <span style={{ fontSize:13, fontWeight:700, color:inF?C.arm:C.warn, fontFamily:MONO }}>{`Y${yr} M${mo}`}</span>
+          <span style={{ fontSize:10, color:inF?C.arm:C.warn, opacity:0.65 }}>{inF?(isEn?"Fixed":"固定期"):(isEn?"Adjustable":"浮动期")}</span>
+        </div>
+      </div>
+      <div ref={ref} onPointerDown={onDown} style={{ position:"relative", height:48, cursor:"pointer", touchAction:"none", userSelect:"none" }}>
+        <div style={{ position:"absolute", top:20, left:0, right:0, height:8, borderRadius:4, background:C.border }} />
+        <div style={{ position:"absolute", top:20, left:0, width:`${fixPct}%`, height:8, borderRadius:"4px 0 0 4px", background:C.armGlow, borderRight:`2px dashed ${C.arm}50` }} />
+        <div style={{ position:"absolute", top:20, left:0, width:`${pct}%`, height:8, borderRadius:4, background:inF?C.arm:`linear-gradient(90deg,${C.arm},${C.warn})`, transition:"width .02s" }} />
+        {[5,10,15,20,25].map(y=><div key={y} style={{ position:"absolute", top:19, left:`${((y*12-1)/(maxMonth-1))*100}%`, width:1, height:10, background:C.textMuted, opacity:0.25 }} />)}
+        <div style={{ position:"absolute", top:12, left:`${pct}%`, transform:"translateX(-50%)", width:24, height:24, borderRadius:"50%", background:C.white, border:`3px solid ${inF?C.arm:C.warn}`, boxShadow:`0 2px 10px ${inF?C.arm:C.warn}35` }} />
+      </div>
+      <div style={{ display:"flex", justifyContent:"space-between", padding:"0 2px" }}>
+        <span style={{ fontSize:9, color:C.textMuted }}>{isEn?"Yr 1":"第1年1月"}</span>
+        <span style={{ fontSize:9, color:C.textMuted }}>{isEn?"Yr 30":"第30年12月"}</span>
+      </div>
+    </div>
+  );
+}
+
+function ChartTip({ active, payload, label }) {
+  if(!active||!payload?.length) return null;
+  const yr=Math.floor((label-1)/12)+1, mo=((label-1)%12)+1;
+  return (
+    <div style={{ background:C.white, border:`1px solid ${C.border}`, borderRadius:12, padding:"10px 14px", boxShadow:"0 4px 20px rgba(0,0,0,0.08)" }}>
+      <div style={{ fontSize:11, color:C.textDim, marginBottom:4, fontWeight:600 }}>{`Y${yr} M${mo}`}</div>
+      {payload.map((p,i)=><div key={i} style={{ fontSize:12, color:p.color, fontWeight:600, fontFamily:MONO, marginTop:2 }}>{p.name}: {typeof p.value==="number"&&p.value<50?fmtP(p.value):fmtD(p.value)}</div>)}
+    </div>
+  );
+}
+
+const ARM_GLOSSARY = [
+  { term:"ARM", cn:"浮动利率贷款", desc:"初始固定期结束后，利率每年根据市场基准调整。如5/1 ARM表示前5年固定，之后每年调整。", descEn:"Adjustable-Rate Mortgage. Rate stays fixed for an initial period, then adjusts annually. E.g., 5/1 ARM = fixed for 5 years, adjusts every year after." },
+  { term:"Fixed Rate", cn:"固定利率贷款", desc:"整个贷款期限内利率不变，月供固定。", descEn:"Interest rate remains constant for the entire loan term. Monthly payment stays the same." },
+  { term:"Discount Points", cn:"买点/折扣点数", desc:"过户时预付费用换取更低利率。1点=贷款额1%，通常降息约0.25%。", descEn:"Upfront fee paid at closing to buy down the rate. 1 point = 1% of loan amount, typically reduces rate by ~0.25%." },
+  { term:"APR", cn:"年化实际利率", desc:"将买点等费用分摊后的等效年利率。APR总是≥票面利率，用来公平对比不同方案的真实成本。", descEn:"Annual Percentage Rate. The effective yearly rate after amortizing points and fees. Always >= note rate. Used to fairly compare different loan options." },
+  { term:"Base Rate", cn:"基础利率(0点)", desc:"不买点时的原始利率。报价\"5.5%含1点\"则基础利率约5.75%。", descEn:"The original rate with 0 points (par rate). If quoted '5.5% with 1 point', the base rate is ~5.75%." },
+  { term:"Periodic Cap", cn:"单次调整上限", desc:"ARM每次利率调整的最大变动幅度，如±2%。", descEn:"Maximum rate change per adjustment period for ARM loans, e.g., ±2%." },
+  { term:"Lifetime Cap", cn:"终身上限", desc:"ARM相对初始利率的最大上涨幅度，如+5%。", descEn:"Maximum rate increase over the life of the ARM relative to the initial rate, e.g., +5%." },
+  { term:"Payment Shock", cn:"月供跳升", desc:"ARM固定期结束后利率上调导致月供突然大幅增加。", descEn:"A sudden significant increase in monthly payment when an ARM's fixed period ends and the rate adjusts upward." },
+];
+
+function ArmNavigator({ onBack, lang }) {
+  const isEn = lang === "en";
+  const [loanMode, setLoanMode] = React.useState("price");
+  const [homePrice, setHomePrice] = React.useState(700000);
+  const [downPct, setDownPct] = React.useState(20);
+  const [directLoan, setDirectLoan] = React.useState(500000);
+  const loanAmount = loanMode === "price" ? Math.round(homePrice * (1 - downPct / 100)) : directLoan;
+  const [fixedQuoteRate,setFixedQuoteRate]=React.useState(6.500);
+  const [armQuoteRate,setArmQuoteRate]=React.useState(5.250);
+  const [fixedPoints,setFixedPoints]=React.useState(1);
+  const [armPoints,setArmPoints]=React.useState(0.5);
+  const [armTypeIdx,setArmTypeIdx]=React.useState(1);
+  const [scenario,setScenario]=React.useState("mod_rise");
+  const [selectedMonth,setSelectedMonth]=React.useState(60);
+  const [seed,setSeed]=React.useState(42);
+  const [showInputs,setShowInputs]=React.useState(true);
+  const [chartMode,setChartMode]=React.useState("rate");
+  const [showRefLine,setShowRefLine]=React.useState(true);
+  const [showReport,setShowReport]=React.useState(false);
+  const [armReportLang,setArmReportLang]=React.useState(lang);
+
+  const periodicCap=2, lifetimeCap=5, termYears=30, totalMonths=360;
+  const fixedPeriod=ARM_TYPES[armTypeIdx].fixed, fixedMonths=fixedPeriod*12;
+  const fixedBaseRate=Math.round((fixedQuoteRate+fixedPoints*RATE_PER_POINT)*1000)/1000;
+  const armBaseRate=Math.round((armQuoteRate+armPoints*RATE_PER_POINT)*1000)/1000;
+  const fixedPointCost=fixedPoints*0.01*loanAmount, armPointCost=armPoints*0.01*loanAmount;
+  const fixedAPR=React.useMemo(()=>calcAPR(fixedQuoteRate,loanAmount,fixedPointCost,totalMonths),[fixedQuoteRate,loanAmount,fixedPointCost]);
+  const armAPR=React.useMemo(()=>calcAPR(armQuoteRate,loanAmount,armPointCost,totalMonths),[armQuoteRate,loanAmount,armPointCost]);
+  const armSch=React.useMemo(()=>buildArmMonthly(loanAmount,armQuoteRate,armPoints,fixedPeriod,scenario,periodicCap,lifetimeCap,termYears,seed),[loanAmount,armQuoteRate,armPoints,fixedPeriod,scenario,seed]);
+  const fixSch=React.useMemo(()=>buildFixedMonthly(loanAmount,fixedQuoteRate,termYears),[loanAmount,fixedQuoteRate]);
+  const chartData=React.useMemo(()=>{const d=[];for(let m=1;m<=totalMonths;m+=3){const a=armSch[m-1],f=fixSch[m-1];if(!a||!f)continue;d.push({month:m,"ARM利率":+a.rate.toFixed(3),"固定利率":+f.rate.toFixed(3),"ARM月供":Math.round(a.payment),"固定月供":Math.round(f.payment),"ARM累计利息":Math.round(a.totalInterest),"固定累计利息":Math.round(f.totalInterest)});}return d;},[armSch,fixSch]);
+  const cur=armSch[Math.min(selectedMonth,totalMonths)-1]||armSch[0], curF=fixSch[Math.min(selectedMonth,totalMonths)-1]||fixSch[0];
+  const diff=cur.payment-curF.payment;
+  const armTC=cur.totalInterest+armPointCost, fixTC=curF.totalInterest+fixedPointCost, tcDiff=armTC-fixTC;
+  const fixBE=React.useMemo(()=>{if(!fixedPoints)return null;const s=pmtCalc(fixedBaseRate,totalMonths,loanAmount)-pmtCalc(fixedQuoteRate,totalMonths,loanAmount);if(s<=0)return null;const m=Math.ceil(fixedPointCost/s);return{months:m,years:(m/12).toFixed(1),save:s};},[fixedPoints,fixedBaseRate,fixedQuoteRate,loanAmount,fixedPointCost]);
+  const armBE=React.useMemo(()=>{if(!armPoints)return null;const s=pmtCalc(armBaseRate,totalMonths,loanAmount)-pmtCalc(armQuoteRate,totalMonths,loanAmount);if(s<=0)return null;const m=Math.ceil(armPointCost/s);return{months:m,years:(m/12).toFixed(1),save:s};},[armPoints,armBaseRate,armQuoteRate,loanAmount,armPointCost]);
+  const ck=chartMode==="rate"?["ARM利率","固定利率"]:chartMode==="payment"?["ARM月供","固定月供"]:["ARM累计利息","固定累计利息"];
+  const chartYRange = React.useMemo(() => {
+    if (!chartData.length) return { min: 0, max: 1 };
+    let mn = Infinity, mx = -Infinity;
+    chartData.forEach(d => { [ck[0], ck[1]].forEach(k => { if (d[k] != null) { mn = Math.min(mn, d[k]); mx = Math.max(mx, d[k]); } }); });
+    const pad = (mx - mn) * 0.12 || 1;
+    const lo = Math.max(0, mn - pad);
+    const hi = mx + pad;
+    return { min: Math.floor(lo * (chartMode === "rate" ? 10 : 0.01)) / (chartMode === "rate" ? 10 : 0.01), max: Math.ceil(hi * (chartMode === "rate" ? 10 : 0.01)) / (chartMode === "rate" ? 10 : 0.01) };
+  }, [chartData, ck, chartMode]);
+  const holdYrsArm = selectedMonth / 12;
+  const holdLabelArm = holdYrsArm % 1 === 0 ? `${holdYrsArm}${isEn?"yr":"年"}` : `${holdYrsArm.toFixed(1)}${isEn?"yr":"年"}`;
+  const yr=Math.floor((selectedMonth-1)/12)+1, mo=((selectedMonth-1)%12)+1;
+
+  /*  ARM REPORT  */
+  if (showReport) {
+    const ren = armReportLang === "en";
+    const genArmReport = () => {
+      const L = [];
+      L.push(ren ? "ARM vs FIXED RATE ANALYSIS" : "ARM vs 固定利率分析报告");
+      L.push("");
+      L.push(ren ? `Loan: ${fmtD(loanAmount)} | Term: ${termYears}yr | Holding: ${holdLabelArm}` : `贷款额：${fmtD(loanAmount)} | 期限：${termYears}年 | 持有：${holdLabelArm}`);
+      L.push(ren ? `ARM: ${fmtP(armQuoteRate)} (${ARM_TYPES[armTypeIdx].label}, ${armPoints}pt) | APR ${fmtP(armAPR)}` : `ARM：${fmtP(armQuoteRate)}（${ARM_TYPES[armTypeIdx].label}，${armPoints}点）| APR ${fmtP(armAPR)}`);
+      L.push(ren ? `Fixed: ${fmtP(fixedQuoteRate)} (${fixedPoints}pt) | APR ${fmtP(fixedAPR)}` : `固定：${fmtP(fixedQuoteRate)}（${fixedPoints}点）| APR ${fmtP(fixedAPR)}`);
+      L.push(ren ? `Scenario: ${SCENARIOS.find(s=>s.key===scenario)?.labelEn||scenario}` : `情景：${SCENARIOS.find(s=>s.key===scenario)?.label||scenario}`);
+      L.push("");
+      L.push(ren ? `At ${holdLabelArm}:` : `持有${holdLabelArm}时：`);
+      L.push(ren ? `  ARM Payment: ${fmtD(cur.payment)}/mo (rate ${fmtP(cur.rate)})` : `  ARM月供：${fmtD(cur.payment)}（利率${fmtP(cur.rate)}）`);
+      L.push(ren ? `  Fixed Payment: ${fmtD(curF.payment)}/mo` : `  固定月供：${fmtD(curF.payment)}`);
+      L.push(ren ? `  Difference: ${diff>=0?"+":""}${fmtD(diff)}/mo (${diff>0?"ARM costs more":"ARM saves"})` : `  差额：${diff>=0?"+":""}${fmtD(diff)}/月（${diff>0?"ARM更贵":"ARM更省"}）`);
+      L.push(ren ? `  ARM Total Cost: ${fmtD(armTC)} | Fixed Total Cost: ${fmtD(fixTC)}` : `  ARM总成本：${fmtD(armTC)} | 固定总成本：${fmtD(fixTC)}`);
+      L.push("");
+      L.push(ren ? "RECOMMENDATION:" : "建议：");
+      if (diff < 0 && selectedMonth <= ARM_TYPES[armTypeIdx].fixed * 12) {
+        L.push(ren ? `ARM saves ${fmtD(Math.abs(diff))}/mo during the fixed period. Good if you plan to sell or refinance within ${ARM_TYPES[armTypeIdx].fixed} years.` : `ARM在固定期内每月节省${fmtD(Math.abs(diff))}。如果计划${ARM_TYPES[armTypeIdx].fixed}年内出售或再融资，ARM可能是更好的选择。`);
+      } else if (diff > curF.payment * 0.1) {
+        L.push(ren ? `ARM payment is significantly higher than fixed. Consider locking in the fixed rate for payment stability.` : `ARM月供明显高于固定利率。建议考虑锁定固定利率以保持月供稳定。`);
+      } else {
+        L.push(ren ? `ARM and fixed costs are relatively close. Decision depends on your holding timeline and risk tolerance.` : `ARM和固定利率成本接近。决策取决于您的持有计划和风险承受能力。`);
+      }
+      L.push("");
+      L.push(ren ? "Disclaimer: For informational purposes only. Actual rates may vary." : "声明：本分析仅供参考，实际以贷款机构报价为准。");
+      return L.join("\n");
+    };
+    const armTxt = genArmReport();
+    return (
+      <div style={{ fontFamily:FONT, background:C.white, minHeight:"100vh", color:C.text, maxWidth:480, margin:"0 auto", WebkitFontSmoothing:"antialiased" }}>
+        <GlobalStyles />
+        <div style={{ padding:"14px 16px 16px" }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+            <div style={{ display:"flex", gap:0, background:C.cardAlt, borderRadius:8, padding:2 }}>
+              {[{k:"cn",l:"中文"},{k:"en",l:"EN"}].map(t => {const a=t.k===armReportLang;return <button key={t.k} onClick={()=>setArmReportLang(t.k)} style={{ padding:"4px 12px", borderRadius:6, border:"none", cursor:"pointer", background:a?C.arm:"transparent", color:a?C.white:C.textDim, fontSize:11, fontWeight:a?700:500, fontFamily:FONT }}>{t.l}</button>;})}
+            </div>
+            <button onClick={()=>setShowReport(false)} style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:6, padding:"3px 10px", cursor:"pointer", fontSize:11, color:C.textDim, fontFamily:FONT }}>✕</button>
+          </div>
+          <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
+            <LogoSVG size={28} />
+            <div><div style={{ fontSize:15, fontWeight:700 }}>{ren?"ARM vs Fixed Rate Report":"ARM vs 固定利率分析报告"}</div><div style={{ fontSize:9, color:C.textMuted }}>Rate Navigator by JMJ · {new Date().toLocaleDateString(ren?"en-US":"zh-CN")}</div></div>
+          </div>
+          <div style={{ height:1.5, background:`linear-gradient(90deg,${C.arm},${C.fixed})`, borderRadius:1, marginBottom:10 }} />
+          <div style={{ display:"flex", gap:4, marginBottom:8, flexWrap:"wrap" }}>
+            {[{l:ren?"Loan":"贷款",v:fmtD(loanAmount)},{l:"ARM",v:`${fmtP(armQuoteRate)} · ${fmtD(cur.payment)}`},{l:ren?"Fixed":"固定",v:`${fmtP(fixedQuoteRate)} · ${fmtD(curF.payment)}`},{l:ren?"Diff":"差额",v:`${diff>=0?"+":""}${fmtD(diff)}`},{l:ren?"ARM Cost":"ARM总成本",v:fmtD(armTC)},{l:ren?"Fixed Cost":"固定总成本",v:fmtD(fixTC)}].map(x =>
+              <div key={x.l} style={{ flex:1, minWidth:55, padding:"5px 4px", background:C.cardAlt, borderRadius:8, textAlign:"center" }}>
+                <div style={{ fontSize:7, color:C.textDim }}>{x.l}</div><div style={{ fontSize:10, fontWeight:700, fontFamily:MONO }}>{x.v}</div>
+              </div>
+            )}
+          </div>
+          <div style={{ padding:"10px 12px", borderRadius:12, background:tcDiff>0?C.dangerLight:C.armLight, marginBottom:8 }}>
+            <div style={{ fontSize:13, fontWeight:700, color:tcDiff>0?C.danger:C.arm }}>{tcDiff>0?(ren?"⚠️ ARM total cost higher":"⚠️ ARM总成本更高"):(ren?"✅ ARM total cost lower":"✅ ARM总成本更低")}</div>
+            <div style={{ fontSize:11, color:C.textSec, marginTop:4, lineHeight:1.5 }}>{ren?`Over ${holdLabelArm}: ARM total ${fmtD(armTC)} (int ${fmtD(cur.totalInterest)}+pts ${fmtD(armPointCost)}) vs Fixed ${fmtD(fixTC)} (int ${fmtD(curF.totalInterest)}+pts ${fmtD(fixedPointCost)}), ARM is ${fmtD(Math.abs(tcDiff))} ${tcDiff>0?"more":"less"}. Payment now: ARM ${fmtD(cur.payment)} vs Fixed ${fmtD(curF.payment)}.`:`持有${holdLabelArm}：ARM总成本${fmtD(armTC)}（利息${fmtD(cur.totalInterest)}+买点${fmtD(armPointCost)}） vs 固定${fmtD(fixTC)}（利息${fmtD(curF.totalInterest)}+买点${fmtD(fixedPointCost)}），ARM${tcDiff>0?"多付":"少付"}${fmtD(Math.abs(tcDiff))}。当前月供：ARM ${fmtD(cur.payment)} vs 固定 ${fmtD(curF.payment)}。`}</div>
+          </div>
+          <div style={{ marginTop:8, borderTop:`1px solid ${C.border}`, paddingTop:8 }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:6 }}>
+              <div style={{ fontSize:10, fontWeight:700 }}>{ren?"📧 Analysis":"📧 分析摘要"}</div>
+              <button onClick={()=>navigator.clipboard?.writeText(armTxt)} style={{ padding:"3px 10px", borderRadius:6, border:`1px solid ${C.arm}`, cursor:"pointer", background:C.armLight, color:C.arm, fontSize:10, fontWeight:600, fontFamily:FONT }}>{ren?"Copy":"复制"}</button>
+            </div>
+            <div style={{ padding:10, background:C.cardAlt, borderRadius:10, fontSize:10, color:C.textSec, lineHeight:1.7, whiteSpace:"pre-wrap", fontFamily:FONT, border:`1px solid ${C.borderLight}`, maxHeight:280, overflow:"auto" }}>{armTxt}</div>
+          </div>
+          <div style={{ marginTop:8, textAlign:"center", fontSize:8, color:C.textMuted }}>Product by JMJ. All rights reserved.</div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ fontFamily:FONT, background:C.bg, minHeight:"100vh", color:C.text, maxWidth:480, margin:"0 auto", paddingTop:56, paddingBottom:108, WebkitFontSmoothing:"antialiased" }}>
+      <GlobalStyles />
+      {/* Fixed Header */}
+      <div style={{ position:"fixed", top:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, zIndex:100, background:"transparent", borderBottom:"none", boxShadow:"none" }}>
+        <div style={{ padding:"10px 16px", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+          <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+            <button onClick={onBack} style={{ background:"none", border:"none", cursor:"pointer", fontSize:20, color:C.textDim, padding:"2px 6px" }}>‹</button>
+            <LogoSVG size={28} />
+            <div>
+              <div style={{ fontSize:14, fontWeight:700, color:C.text, lineHeight:1.2 }}>{isEn?"ARM vs Fixed":"ARM vs 固定利率"}</div>
+              <div style={{ fontSize:9, color:C.textMuted, fontWeight:500, letterSpacing:0.5 }}>RATE NAVIGATOR by JMJ</div>
+            </div>
+          </div>
+          <div style={{ display:"flex", gap:4 }}>
+            <button onClick={()=>setShowReport(true)} style={{ background:C.arm, border:"none", borderRadius:8, padding:"5px 10px", cursor:"pointer", fontSize:11, color:C.white, fontFamily:FONT, fontWeight:600 }}>📋 生成报告</button>
+            <button onClick={()=>setSeed(s=>s+1)} style={{ background:C.cardAlt, border:`1px solid ${C.border}`, borderRadius:8, color:C.textSec, fontSize:11, padding:"5px 10px", cursor:"pointer", fontFamily:FONT, fontWeight:600 }}>🔄 重新模拟</button>
+          </div>
+        </div>
+      </div>
+
+      {/* Params */}
+      <div style={{ padding:"10px 16px 0" }}>
+        <button onClick={()=>setShowInputs(!showInputs)} style={{ width:"100%", background:C.card, border:`1px solid ${C.borderLight}`, borderRadius:16, padding:"13px 18px", cursor:"pointer", boxShadow:C.shadow, display:"flex", alignItems:"center", justifyContent:"space-between", fontFamily:FONT, fontSize:14, fontWeight:600, color:C.text }}>
+          <span>{isEn? "⚙️ Parameters" : "⚙️ 贷款参数设置"}</span>
+          <span style={{ fontSize:18, transform:showInputs?"rotate(180deg)":"", transition:"transform .25s", color:C.textDim }}>⌄</span>
+        </button>
+      </div>
+      {showInputs&&(
+        <div style={{ margin:"8px 16px 0", padding:20, background:C.card, border:`1px solid ${C.borderLight}`, borderRadius:18, boxShadow:C.shadow, animation:"cardIn .35s ease-out" }}>
+          <div style={{ fontSize:13, fontWeight:700, marginBottom:8 }}>{isEn?"Loan Amount":"贷款金额"}</div>
+          <div style={{ display:"flex", gap:6, marginBottom:12, background:C.cardAlt, borderRadius:10, padding:3 }}>
+            {[{k:"price",l:isEn?"By Home Price":"通过房价推算"},{k:"direct",l:isEn?"Direct Input":"直接输入金额"}].map(t => {
+              const a = t.k === loanMode;
+              return <button key={t.k} onClick={() => setLoanMode(t.k)} style={{ flex:1, padding:"6px 2px", borderRadius:8, border:"none", cursor:"pointer", background:a ? C.white : "transparent", boxShadow:a ? C.shadow : "none", fontFamily:FONT, fontSize:11, fontWeight:a ? 700 : 500, color:a ? C.arm : C.textDim }}>{t.l}</button>;
+            })}
+          </div>
+          {loanMode === "price" ? <>
+            <AmountSlider label={isEn?"Home Price":"房价"} value={homePrice} onChange={setHomePrice} min={200000} max={3000000} step={25000} color={C.arm} />
+            <div style={{ marginBottom:12 }}>
+              <div style={{ display:"flex", justifyContent:"space-between", marginBottom:6 }}>
+                <span style={{ fontSize:12, color:C.textSec, fontWeight:600 }}>{isEn?"Down Payment":"首付比例"}</span>
+                <span style={{ fontSize:14, fontWeight:700, fontFamily:MONO, color:C.arm }}>{downPct}% = {fmtD(homePrice * downPct / 100)}</span>
+              </div>
+              <input type="range" min={3} max={50} step={1} value={downPct} onChange={e => setDownPct(Number(e.target.value))}
+                style={{ width:"100%", height:5, borderRadius:3, outline:"none", appearance:"none", WebkitAppearance:"none", cursor:"pointer", background:`linear-gradient(to right,${C.arm} 0%,${C.arm} ${((downPct-3)/47)*100}%,${C.border} ${((downPct-3)/47)*100}%,${C.border} 100%)` }} />
+            </div>
+            <div style={{ padding:"8px 12px", background:C.armLight, borderRadius:10, fontSize:12, fontWeight:600, color:C.arm, textAlign:"center" }}>{isEn?"Loan Amount":"贷款金额"}: {fmtD(loanAmount)}</div>
+          </> : <AmountSlider label={isEn?"Loan Amount":"贷款金额"} value={directLoan} onChange={setDirectLoan} min={100000} max={2000000} step={25000} color={C.arm} />}
+          <div style={{ height:12 }} />
+          {/* Fixed section */}
+          <div style={{ padding:14, background:C.fixedLight, borderRadius:14, marginBottom:16, border:`1px solid ${C.fixed}15` }}>
+            <div style={{ fontSize:13, fontWeight:700, color:C.fixed, marginBottom:12 }}>{isEn?"■ Fixed Rate Option":"■ 固定利率方案"}</div>
+            <RateInput label={isEn?"Quoted Rate":"报价利率"} value={fixedQuoteRate} onChange={setFixedQuoteRate} min={2} max={10} step={0.001} color={C.fixed} />
+            <div style={{ marginBottom:10 }}>
+              <div style={{ display:"flex", justifyContent:"space-between", marginBottom:6 }}>
+                <span style={{ fontSize:12, color:C.textSec, fontWeight:600 }}>{isEn?"Points":"买点数"}</span>
+                <span style={{ fontSize:14, fontWeight:700, fontFamily:MONO, color:C.fixed }}>{fixedPoints}</span>
+              </div>
+              <input type="range" min={0} max={3} step={0.125} value={fixedPoints} onChange={e=>setFixedPoints(Number(e.target.value))}
+                style={{ width:"100%", height:5, borderRadius:3, outline:"none", appearance:"none", WebkitAppearance:"none", cursor:"pointer", background:`linear-gradient(to right,${C.fixed} 0%,${C.fixed} ${(fixedPoints/3)*100}%,${C.border} ${(fixedPoints/3)*100}%,${C.border} 100%)` }} />
+            </div>
+            <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+              {[{l:isEn?"Base Rate":"基础利率",v:fmtP(fixedBaseRate)},{l:isEn?"Cost":"费用",v:fmtD(fixedPointCost)},{l:"APR",v:fmtP(fixedAPR)},fixBE&&{l:isEn?"B/E":"回本",v:fixBE.years+(isEn?"yr":"年")}].filter(Boolean).map(x=>
+                <span key={x.l} style={{ padding:"5px 8px", background:C.white, borderRadius:8, fontSize:10, color:C.textSec }}>{x.l} <b style={{ color:C.fixed, fontFamily:MONO }}>{x.v}</b></span>
+              )}
+            </div>
+          </div>
+          {/* ARM section */}
+          <div style={{ padding:14, background:C.armLight, borderRadius:14, marginBottom:16, border:`1px solid ${C.arm}15` }}>
+            <div style={{ fontSize:13, fontWeight:700, color:C.arm, marginBottom:12 }}>{isEn?"◆ ARM Option":"◆ ARM方案"}</div>
+            <RateInput label={isEn?"Quoted Rate":"报价利率"} value={armQuoteRate} onChange={setArmQuoteRate} min={2} max={9} step={0.001} color={C.arm} />
+            <div style={{ marginBottom:10 }}>
+              <div style={{ display:"flex", justifyContent:"space-between", marginBottom:6 }}>
+                <span style={{ fontSize:12, color:C.textSec, fontWeight:600 }}>{isEn?"Points":"买点数"}</span>
+                <span style={{ fontSize:14, fontWeight:700, fontFamily:MONO, color:C.arm }}>{armPoints}</span>
+              </div>
+              <input type="range" min={0} max={3} step={0.125} value={armPoints} onChange={e=>setArmPoints(Number(e.target.value))}
+                style={{ width:"100%", height:5, borderRadius:3, outline:"none", appearance:"none", WebkitAppearance:"none", cursor:"pointer", background:`linear-gradient(to right,${C.arm} 0%,${C.arm} ${(armPoints/3)*100}%,${C.border} ${(armPoints/3)*100}%,${C.border} 100%)` }} />
+            </div>
+            <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+              {[{l:isEn?"Base Rate":"基础利率",v:fmtP(armBaseRate)},{l:isEn?"Cost":"费用",v:fmtD(armPointCost)},{l:"APR",v:fmtP(armAPR)},armBE&&{l:isEn?"B/E":"回本",v:armBE.years+(isEn?"yr":"年")}].filter(Boolean).map(x=>
+                <span key={x.l} style={{ padding:"5px 8px", background:C.white, borderRadius:8, fontSize:10, color:C.textSec }}>{x.l} <b style={{ color:C.arm, fontFamily:MONO }}>{x.v}</b></span>
+              )}
+            </div>
+          </div>
+          {/* ARM Type */}
+          <div style={{ marginBottom:16 }}>
+            <div style={{ fontSize:13, color:C.text, fontWeight:600, marginBottom:8 }}>{isEn?"ARM Type":"ARM类型"}</div>
+            <div style={{ display:"flex", gap:6, background:C.cardAlt, borderRadius:14, padding:4 }}>
+              {ARM_TYPES.map((t,i)=>{const a=i===armTypeIdx;return(
+                <button key={t.label} onClick={()=>setArmTypeIdx(i)} style={{ flex:1, padding:"9px 2px", borderRadius:11, border:"none", cursor:"pointer", background:a?C.white:"transparent", boxShadow:a?C.shadow:"none", color:a?C.arm:C.textDim, fontSize:14, fontWeight:a?700:500, fontFamily:FONT }}><div>{t.label}</div><div style={{ fontSize:9, opacity:0.6 }}>{isEn?(t.descEn||t.desc):t.desc}</div></button>
+              );})}
+            </div>
+          </div>
+          {/* Scenarios */}
+          <div style={{ fontSize:13, color:C.text, fontWeight:600, marginBottom:8 }}>{isEn?"Rate Scenarios":"利率情景"}</div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr", gap:6 }}>
+            {SCENARIOS.map(s=>{const a=s.key===scenario;return(
+              <button key={s.key} onClick={()=>setScenario(s.key)} style={{ padding:"10px 2px 8px", borderRadius:12, cursor:"pointer", border:`1.5px solid ${a?s.color:C.borderLight}`, background:a?`${s.color}12`:C.white, fontFamily:FONT, display:"flex", flexDirection:"column", alignItems:"center", gap:2 }}>
+                <div style={{ fontSize:16 }}>{s.icon}</div>
+                <div style={{ fontSize:11, fontWeight:600, color:a?s.color:C.textSec }}>{isEn?s.labelEn:s.label}</div>
+                <div style={{ fontSize:8, color:a?s.color:C.textMuted, opacity:0.7 }}>{isEn?s.descEn:s.desc}</div>
+              </button>
+            );})}
+          </div>
+          <div style={{ marginTop:14, padding:"10px 14px", background:C.cardAlt, borderRadius:10, fontSize:11, color:C.textDim }}>📋 Cap: ±{periodicCap}% · {isEn?"Lifetime":"终身"}+{lifetimeCap}%</div>
+        </div>
+      )}
+
+      {/* Stats */}
+      <div style={{ padding:"8px 16px 0", display:"flex", gap:7 }}>
+        <StatCard label={isEn?"ARM Pmt":"ARM月供"} value={fmtD(cur.payment)} sub={`利率 ${fmtP(cur.rate)}`} color={C.arm} />
+        <StatCard label={isEn?"Fixed Pmt":"固定月供"} value={fmtD(curF.payment)} sub={`利率 ${fmtP(curF.rate)}`} color={C.fixed} />
+        <StatCard label={isEn?"Diff":"月供差额"} value={(diff>=0?"+":"")+fmtD(diff)} sub={diff>0?(isEn?"ARM higher":"ARM更贵"):(isEn?"ARM saves":"ARM更省")} color={diff>0?C.danger:C.arm} highlight={diff>0?C.dangerLight:C.armLight} />
+      </div>
+      <div style={{ padding:"8px 16px 0", display:"flex", gap:7 }}>
+        <StatCard label="ARM APR" labelEn={isEn?"Incl. points":"含买点真实利率"} value={fmtP(armAPR)} sub={`票面${fmtP(armQuoteRate)} · ${armPoints}点`} color={C.arm} />
+        <StatCard label="固定 APR" labelEn={isEn?"Incl. points":"含买点真实利率"} value={fmtP(fixedAPR)} sub={`票面${fmtP(fixedQuoteRate)} · ${fixedPoints}点`} color={C.fixed} />
+      </div>
+
+      {/* Chart */}
+      <div style={{ padding:"8px 16px 0" }}>
+        <div style={{ background:C.card, border:`1px solid ${C.borderLight}`, borderRadius:18, padding:"14px 6px 8px", boxShadow:C.shadow }}>
+          <div style={{ display:"flex", margin:"0 12px 8px", justifyContent:"space-between", alignItems:"center" }}>
+            <div style={{ display:"flex", flex:1, background:C.cardAlt, borderRadius:12, padding:3 }}>
+              {[{key:"rate",l:isEn?"Rates":"利率走势"},{key:"payment",l:isEn?"Payment":"月供对比"},{key:"interest",l:isEn?"Interest":"累计利息"}].map(t=>{const a=t.key===chartMode;return(
+                <button key={t.key} onClick={()=>setChartMode(t.key)} style={{ flex:1, padding:"7px 2px", borderRadius:10, border:"none", cursor:"pointer", background:a?C.white:"transparent", boxShadow:a?"0 1px 4px rgba(0,0,0,0.05)":"none", fontFamily:FONT, fontSize:12, fontWeight:a?700:500, color:a?C.arm:C.textDim }}>{t.l}</button>
+              );})}
+            </div>
+            <button onClick={()=>setShowRefLine(!showRefLine)} style={{ marginLeft:8, width:32, height:32, borderRadius:8, border:"1px solid "+(showRefLine?C.arm:C.border), background:showRefLine?C.armLight:"transparent", cursor:"pointer", fontSize:14, display:"flex", alignItems:"center", justifyContent:"center", color:showRefLine?C.arm:C.textMuted }}>{showRefLine?"\u2503":"\u2503"}</button>
+          </div>
+          <div style={{ position:"relative" }}>
+            <Recharts.ResponsiveContainer width="100%" height={200}>
+              <Recharts.AreaChart data={chartData} margin={{top:5,right:14,bottom:5,left:-8}}>
+                <defs><linearGradient id="gA" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={C.arm} stopOpacity={0.18}/><stop offset="95%" stopColor={C.arm} stopOpacity={0.01}/></linearGradient>
+                <linearGradient id="gF" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={C.fixed} stopOpacity={0.12}/><stop offset="95%" stopColor={C.fixed} stopOpacity={0.01}/></linearGradient></defs>
+                <Recharts.CartesianGrid stroke={C.border} strokeDasharray="3 3" vertical={false}/>
+                <Recharts.XAxis dataKey="month" tick={{fontSize:10,fill:C.textMuted}} tickLine={false} axisLine={false} ticks={[1,60,120,180,240,300,360]} tickFormatter={v=>`${Math.ceil(v/12)}${isEn?"yr":"年"}`}/>
+                <Recharts.YAxis domain={[chartYRange.min, chartYRange.max]} tick={{fontSize:10,fill:C.textMuted}} tickLine={false} axisLine={false} tickFormatter={v=>chartMode==="rate"?v.toFixed(1)+"%":v>=1000?"$"+(v/1000).toFixed(0)+"k":"$"+v}/>
+                {!showRefLine && <Recharts.Tooltip content={<ChartTip/>}/>}
+                <Recharts.ReferenceLine x={fixedMonths} stroke={C.warn} strokeOpacity={0.2} strokeDasharray="2 6"/>
+                <Recharts.Area type="monotone" dataKey={ck[1]} stroke={C.fixed} strokeWidth={2} fill="url(#gF)" dot={false}/>
+                <Recharts.Area type="monotone" dataKey={ck[0]} stroke={C.arm} strokeWidth={2.5} fill="url(#gA)" dot={false} activeDot={showRefLine?false:{r:4,fill:C.arm,stroke:C.white,strokeWidth:2}}/>
+              </Recharts.AreaChart>
+            </Recharts.ResponsiveContainer>
+            {showRefLine && (() => {
+              const armVal = chartMode==="rate"?cur.rate:chartMode==="payment"?cur.payment:cur.totalInterest;
+              const fixVal = chartMode==="rate"?curF.rate:chartMode==="payment"?curF.payment:curF.totalInterest;
+              const range = chartYRange.max - chartYRange.min || 1;
+              let ap = (1 - (armVal - chartYRange.min) / range) * 82 + 4;
+              let fp = (1 - (fixVal - chartYRange.min) / range) * 82 + 4;
+              ap = Math.max(5, Math.min(78, ap)); fp = Math.max(5, Math.min(78, fp));
+              if (Math.abs(ap - fp) < 9) { const mid = (ap + fp) / 2; if (ap < fp) { ap = mid - 5; fp = mid + 5; } else { fp = mid - 5; ap = mid + 5; } }
+              const xP = Math.max(12, 11 + ((selectedMonth-1)/359)*82);
+              const fl = xP > 65;
+              const labelX = fl ? (xP - 1) : Math.max(xP + 1, 14);
+              const aT = "ARM " + (chartMode==="rate"?fmtP(armVal):fmtD(armVal));
+              const fT = (isEn?"Fix ":"固定 ") + (chartMode==="rate"?fmtP(fixVal):fmtD(fixVal));
+              return <div style={{ position:"absolute", top:0, bottom:0, left:0, right:0, pointerEvents:"none" }}>
+                <div style={{ position:"absolute", top:"4%", bottom:"13%", left:xP+"%", width:1.5, background:C.arm, opacity:0.4 }} />
+                <div style={{ position:"absolute", bottom:"11%", left:xP+"%", transform:"translateX(-50%)", background:C.arm, color:C.white, borderRadius:3, padding:"0 5px", fontSize:7, fontWeight:700, lineHeight:"13px" }}>Y{yr}</div>
+                <div style={{ position:"absolute", top:ap+"%", left:labelX+"%", transform:fl?"translateX(-100%)":"none", background:C.white+"F0", border:"1px solid "+C.arm, borderRadius:3, padding:"0 4px", fontSize:7, fontWeight:700, color:C.arm, whiteSpace:"nowrap", lineHeight:"12px" }}>{aT}</div>
+                <div style={{ position:"absolute", top:fp+"%", left:labelX+"%", transform:fl?"translateX(-100%)":"none", background:C.white+"F0", border:"1px solid "+C.fixed, borderRadius:3, padding:"0 4px", fontSize:7, fontWeight:700, color:C.fixed, whiteSpace:"nowrap", lineHeight:"12px" }}>{fT}</div>
+              </div>;
+            })()}
+          </div>
+          <div style={{ display:"flex", justifyContent:"center", gap:24, padding:"4px 0 2px" }}>
+            {[{c:C.arm,l:"ARM"},{c:C.fixed,l:isEn?"30yr Fixed":"30年固定"}].map(x=><div key={x.l} style={{ display:"flex", alignItems:"center", gap:6 }}><div style={{ width:14, height:3, borderRadius:2, background:x.c }}/><span style={{ fontSize:11, color:C.textDim }}>{x.l}</span></div>)}
+          </div>
+          <div style={{ margin:"4px 10px 0", padding:"8px 12px", background:C.cardAlt, borderRadius:10 }}>
+            <MonthScrubber month={selectedMonth} maxMonth={totalMonths} onChange={setSelectedMonth} fixedMonths={fixedMonths} en={isEn} />
+          </div>
+        </div>
+      </div>
+
+      {/* Total Cost */}
+      <div style={{ padding:"8px 16px 0" }}>
+        <div style={{ background:C.card, border:`1px solid ${C.borderLight}`, borderRadius:18, padding:18, boxShadow:C.shadow }}>
+          <div style={{ fontSize:13, fontWeight:700, marginBottom:14 }}>{isEn?"Total Cost ":"累计总成本 "}<span style={{ fontSize:10, color:C.textMuted, fontWeight:400 }}>{`Y${yr} M${mo}`}</span></div>
+          <div style={{ display:"flex", gap:14 }}>
+            {[{l:"ARM",v:armTC,iv:cur.totalInterest,p:armPointCost,c:C.arm},{l:isEn?"Fixed":"固定",v:fixTC,iv:curF.totalInterest,p:fixedPointCost,c:C.fixed}].map(x=>{const mx=Math.max(armTC,fixTC);return(
+              <div key={x.l} style={{ flex:1 }}><div style={{ fontSize:11, color:x.c, fontWeight:600, marginBottom:6 }}>{x.l}</div>
+              <div style={{ height:10, background:C.cardAlt, borderRadius:5, overflow:"hidden" }}><div style={{ height:"100%", borderRadius:5, background:`linear-gradient(90deg,${x.c}BB,${x.c})`, width:`${(x.v/mx)*100}%`, transition:"width .3s" }}/></div>
+              <div style={{ fontSize:16, fontWeight:700, color:x.c, fontFamily:MONO, marginTop:6 }}>{fmtD(x.v)}</div>
+              <div style={{ fontSize:9, color:C.textMuted, marginTop:2 }}>{isEn?"Int ":"利息"}{fmtD(x.iv)}{x.p>0?` + ${isEn?"pts ":"买点"}${fmtD(x.p)}`:""}</div></div>
+            );})}
+          </div>
+          <div style={{ marginTop:12, padding:"10px 14px", borderRadius:12, background:tcDiff>0?C.dangerLight:C.armLight, fontSize:13, fontWeight:600, textAlign:"center", color:tcDiff>0?C.danger:C.arm }}>
+            {tcDiff>0?`⚠️ ${isEn?"ARM costs more ":"ARM总成本多 "}${fmtD(tcDiff)}`:`✅ ${isEn?"ARM saves ":"ARM总成本省 "}${fmtD(Math.abs(tcDiff))}`}<span style={{ fontSize:10, fontWeight:400, opacity:0.7 }}>{isEn?" (incl. points)":"（含买点）"}</span>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ padding:"8px 16px 0" }}><GlossarySection terms={ARM_GLOSSARY} en={isEn} /></div>
+      <BrandingFooter />
+
+      {/* Bottom Bar */}
+      <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, background:`linear-gradient(180deg,transparent 0%,${C.bg} 35%)`, paddingTop:16 }}>
+        <div style={{ background:`${C.white}F5`, borderTop:`1px solid ${C.border}`, padding:"10px 16px 14px", display:"flex", alignItems:"center", boxShadow:"0 -4px 20px rgba(30,60,30,0.05)", backdropFilter:"blur(12px)" }}>
+          {[{l:isEn?"ARM":"ARM月供",v:fmtD(cur.payment),c:C.arm},null,{l:isEn?"Fixed":"固定月供",v:fmtD(curF.payment),c:C.fixed},null,{l:isEn?"Diff":"差额",v:(diff>=0?"+":"")+fmtD(diff),c:diff>0?C.danger:C.arm}].map((item,i)=>{
+            if(!item) return <div key={i} style={{ width:1, height:28, background:C.border }}/>;
+            return <div key={i} style={{ flex:1, textAlign:"center" }}><div style={{ fontSize:9, color:C.textMuted, fontWeight:600, letterSpacing:0.5, marginBottom:2 }}>{item.l}</div><div style={{ fontSize:16, fontWeight:700, fontFamily:MONO, color:item.c }}>{item.v}</div></div>;
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* 
+   TOOL 2: POINTS BREAK-EVEN ANALYZER (NEW)
+    */
+const PT_COLORS = ["#D45555","#D98E30","#B8860B","#2D9B65","#5485E0","#7C5FC2","#9370DB"];
+
+const POINTS_GLOSSARY = [
+  { term:"Discount Points", cn:"买点/折扣点数", desc:"过户时预付的费用，用于换取更低利率。1点=贷款额的1%，通常可降低利率约0.25%。本质是\"预付利息\"。", descEn:"Upfront fee to buy a lower rate. 1 point = 1% of loan amount, typically reduces rate by ~0.25%." },
+  { term:"APR", cn:"年化实际利率", desc:"将买点费用分摊到整个贷款期限后的等效年利率。APR越接近票面利率，说明前期费用越低。", descEn:"Effective annual rate after amortizing point costs. The closer APR is to note rate, the lower the upfront costs." },
+  { term:"Break-Even", cn:"回本时间", desc:"买点的前期费用通过月供节省回收所需的时间。如果计划在回本前卖房或再融资，买点不划算。", descEn:"Time for monthly savings to recoup point costs. If you sell/refi before break-even, buying points is not worth it." },
+  { term:"Note Rate", cn:"票面利率", desc:"贷款合同上的利率，用来计算月供。买了点后这个利率就是降低后的利率。", descEn:"The contract interest rate used to calculate your monthly payment. After buying points, this is the reduced rate." },
+  { term:"Base Rate", cn:"基础利率(Par Rate)", desc:"不买任何点数时的原始利率。", descEn:"The original rate with zero discount points (par rate)." },
+  { term:"Total Cost", cn:"总成本", desc:"累计利息 + 买点预付费用。用来对比不同方案的真实总花费。", descEn:"Cumulative interest + upfront point costs. The true total expense for comparing options." },
+];
+
+
+function PointsAnalyzer({ onBack, lang }) {
+  const isEn = lang === "en";
+  const [loanMode, setLoanMode] = React.useState("price");
+  const [homePrice, setHomePrice] = React.useState(700000);
+  const [downPct, setDownPct] = React.useState(20);
+  const [directLoan, setDirectLoan] = React.useState(500000);
+  const loanAmount = loanMode === "price" ? Math.round(homePrice * (1 - downPct / 100)) : directLoan;
+  const [termYears, setTermYears] = React.useState(30);
+  const [selectedMonth, setSelectedMonth] = React.useState(60);
+  const [rateOptions, setRateOptions] = React.useState([
+    { id: 1, rate: 7.000, points: 0 },
+    { id: 2, rate: 6.750, points: 0.5 },
+  ]);
+  const [showReport, setShowReport] = React.useState(false);
+  const [reportLang, setReportLang] = React.useState(lang);
+  const [minWarn, setMinWarn] = React.useState(false);
+  const nextId = React.useRef(10);
+  const totalMonths = termYears * 12;
+
+  const removeOption = (id) => {
+    if (rateOptions.length <= 2) { setMinWarn(true); setTimeout(() => setMinWarn(false), 2000); return; }
+    setRateOptions(rateOptions.filter(o => o.id !== id));
+  };
+  const addOption = () => {
+    if (rateOptions.length >= 7) return;
+    const last = rateOptions[rateOptions.length - 1];
+    nextId.current++;
+    setRateOptions([...rateOptions, { id: nextId.current, rate: Math.max(Math.round((last.rate - 0.25) * 1000) / 1000, 2), points: Math.round((last.points + 0.5) * 1000) / 1000 }]);
+  };
+  const updateOption = (id, field, val) => setRateOptions(rateOptions.map(o => o.id === id ? { ...o, [field]: val } : o));
+
+  const scenarios = React.useMemo(() => {
+    const sorted = [...rateOptions].sort((a, b) => a.points - b.points);
+    const base = sorted.find(o => o.points === 0) || sorted[0];
+    const basePmt = pmtCalc(base.rate, totalMonths, loanAmount);
+    return sorted.map((opt, idx) => {
+      const cost = opt.points * 0.01 * loanAmount;
+      const pmt = pmtCalc(opt.rate, totalMonths, loanAmount);
+      const apr = calcAPR(opt.rate, loanAmount, cost, totalMonths);
+      const monthly = []; let bal = loanAmount, ti = 0;
+      for (let m = 1; m <= totalMonths; m++) {
+        const ip = bal * (opt.rate / 100 / 12); bal = Math.max(0, bal - (pmt - ip)); ti += ip;
+        monthly.push({ totalInterest: ti, balance: bal });
+      }
+      const save = basePmt - pmt;
+      const beM = (save > 0 && cost > 0) ? Math.ceil(cost / save) : null;
+      const isBase = opt.id === base.id;
+      return {
+        id: opt.id, points: opt.points, noteRate: opt.rate, pointCost: cost, payment: pmt, apr: apr,
+        monthlySaving: save, breakEvenMonths: beM, breakEvenYears: beM ? (beM / 12).toFixed(1) : null,
+        monthly: monthly, color: isBase ? C.danger : PT_COLORS[idx % PT_COLORS.length],
+        label: isBase ? (fmtP(opt.rate) + " / 0" + (isEn ? "pt" : "\u70B9")) : (fmtP(opt.rate) + " / " + opt.points + (isEn ? "pt" : "\u70B9")),
+      };
+    });
+  }, [rateOptions, loanAmount, termYears, isEn]);
+
+  const curMonth = Math.min(selectedMonth, totalMonths);
+  const holdYrs = curMonth / 12;
+  const holdLabel = holdYrs % 1 === 0 ? (holdYrs + (isEn ? "yr" : "\u5E74")) : (holdYrs.toFixed(1) + (isEn ? "yr" : "\u5E74"));
+
+  const bestAtMonth = scenarios.reduce((best, s) => {
+    const tc = s.monthly[curMonth - 1].totalInterest + s.pointCost;
+    return (!best || tc < best.tc) ? { ...s, tc: tc } : best;
+  }, null);
+
+  const trackRef = React.useRef(null);
+  const handleScrub = React.useCallback(cx => {
+    if (!trackRef.current) return;
+    const r = trackRef.current.getBoundingClientRect();
+    setSelectedMonth(Math.round(Math.max(0, Math.min(1, (cx - r.left) / r.width)) * (totalMonths - 1)) + 1);
+  }, [totalMonths]);
+  const onScrubDown = React.useCallback(e => {
+    e.preventDefault(); handleScrub(e.clientX);
+    const mv = ev => handleScrub(ev.clientX);
+    const up = () => { window.removeEventListener("pointermove", mv); window.removeEventListener("pointerup", up); };
+    window.addEventListener("pointermove", mv); window.addEventListener("pointerup", up);
+  }, [handleScrub]);
+  const scrubPct = ((curMonth - 1) / (totalMonths - 1)) * 100;
+
+  /* REPORT */
+  if (showReport) {
+    const rIsEn = reportLang === "en";
+    const bestPts = bestAtMonth ? bestAtMonth.points : 0;
+    const bestS = scenarios.find(s => s.points === bestPts);
+    const noS = scenarios.find(s => s.points === 0) || scenarios[0];
+    const genText = () => {
+      const L = [];
+      L.push(rIsEn ? "DISCOUNT POINTS ANALYSIS" : "\u6298\u6263\u70B9\u6570\u5206\u6790");
+      L.push("");
+      L.push((rIsEn ? "Loan: " : "\u8D37\u6B3E\u989D\uFF1A") + fmtD(loanAmount) + " | " + (rIsEn ? "Term: " : "\u671F\u9650\uFF1A") + termYears + (rIsEn ? "yr" : "\u5E74") + " | " + (rIsEn ? "Hold: " : "\u6301\u6709\uFF1A") + holdLabel);
+      L.push("");
+      scenarios.forEach(s => {
+        const tc = s.monthly[curMonth - 1].totalInterest + s.pointCost;
+        const best = bestAtMonth && tc <= bestAtMonth.tc + 1;
+        const be = s.breakEvenYears ? (s.breakEvenYears + (rIsEn ? "yr" : "\u5E74")) : "N/A";
+        L.push((best ? "\u2605 " : "\u25BA ") + fmtP(s.noteRate) + " / " + s.points + (rIsEn ? "pt" : "\u70B9") + ": " + fmtD(s.payment) + "/mo | APR " + fmtP(s.apr) + " | B/E " + be + " | " + (rIsEn ? "Total " : "\u603B") + fmtD(tc) + (best ? (rIsEn ? " \u2190 BEST" : " \u2190 \u6700\u4F18") : ""));
+      });
+      L.push("");
+      L.push(rIsEn ? "Disclaimer: For informational purposes only." : "\u58F0\u660E\uFF1A\u4EC5\u4F9B\u53C2\u8003\u3002");
+      return L.join("\n");
+    };
+    const txt = genText();
+    return (
+      <div style={{ fontFamily: FONT, background: C.white, minHeight: "100vh", color: C.text, maxWidth: 480, margin: "0 auto", padding: "14px 16px" }}>
+        <GlobalStyles />
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+          <div style={{ display: "flex", background: C.cardAlt, borderRadius: 8, padding: 2 }}>
+            {[{k:"cn",l:"\u4E2D\u6587"},{k:"en",l:"EN"}].map(t => {
+              const a = t.k === reportLang;
+              return <button key={t.k} onClick={() => setReportLang(t.k)} style={{ padding:"4px 12px", borderRadius:6, border:"none", cursor:"pointer", background:a ? C.fixed : "transparent", color:a ? C.white : C.textDim, fontSize:11, fontWeight:a ? 700 : 500, fontFamily:FONT }}>{t.l}</button>;
+            })}
+          </div>
+          <button onClick={() => setShowReport(false)} style={{ background:"none", border:"1px solid "+C.border, borderRadius:6, padding:"3px 10px", cursor:"pointer", fontSize:11, color:C.textDim }}>{"\u2715"}</button>
+        </div>
+        <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
+          <LogoSVG size={28} />
+          <div>
+            <div style={{ fontSize:15, fontWeight:700 }}>{rIsEn ? "Points Comparison Report" : "买点方案对比报告"}</div>
+            <div style={{ fontSize:9, color:C.textMuted }}>Rate Navigator by JMJ</div>
+          </div>
+        </div>
+        <div style={{ height:1.5, background:"linear-gradient(90deg,"+C.arm+","+C.fixed+")", borderRadius:1, marginBottom:10 }} />
+        <table style={{ width:"100%", borderCollapse:"collapse", fontSize:9, marginBottom:8 }}>
+          <thead><tr style={{ background:C.cardAlt }}>
+            {(rIsEn ? ["Option","Rate","APR","Pmt","Save","Cost","B/E","Total"] : ["方案","利率","APR","月供","月省","费用","回本","总成本"]).map(h =>
+              <th key={h} style={{ padding:"5px 3px", textAlign:"right", fontWeight:600, color:C.textDim, borderBottom:"1px solid "+C.border, fontSize:8 }}>{h}</th>
+            )}
+          </tr></thead>
+          <tbody>{scenarios.map((s, i) => {
+            const tc = s.monthly[curMonth - 1].totalInterest + s.pointCost;
+            const best = bestAtMonth && tc <= bestAtMonth.tc + 1;
+            return (
+              <tr key={i} style={{ background: best ? C.fixedLight : "transparent" }}>
+                <td style={{ padding:"5px 3px", textAlign:"right", fontWeight:700, color:s.color, fontFamily:MONO, fontSize:8 }}>{s.label}</td>
+                <td style={{ padding:"5px 3px", textAlign:"right", fontFamily:MONO }}>{fmtP(s.noteRate)}</td>
+                <td style={{ padding:"5px 3px", textAlign:"right", fontFamily:MONO }}>{fmtP(s.apr)}</td>
+                <td style={{ padding:"5px 3px", textAlign:"right", fontFamily:MONO }}>{fmtD(s.payment)}</td>
+                <td style={{ padding:"5px 3px", textAlign:"right", fontFamily:MONO, color:s.monthlySaving > 0 ? C.arm : C.textMuted }}>{s.points === 0 ? "\u2014" : fmtD(s.monthlySaving)}</td>
+                <td style={{ padding:"5px 3px", textAlign:"right", fontFamily:MONO }}>{s.pointCost > 0 ? fmtD(s.pointCost) : "\u2014"}</td>
+                <td style={{ padding:"5px 3px", textAlign:"right", fontFamily:MONO, color:s.breakEvenMonths && curMonth >= s.breakEvenMonths ? C.arm : C.textDim }}>{!s.breakEvenMonths ? "\u2014" : s.breakEvenYears + (rIsEn ? "yr" : "\u5E74")}</td>
+                <td style={{ padding:"5px 3px", textAlign:"right", fontFamily:MONO, fontWeight:600, color:best ? C.fixed : C.text }}>{fmtD(tc)}</td>
+              </tr>
+            );
+          })}</tbody>
+        </table>
+        <div style={{ marginTop:8, borderTop:"1px solid "+C.border, paddingTop:8 }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:6 }}>
+            <div style={{ fontSize:10, fontWeight:700 }}>{rIsEn ? "\u{1F4E7} Analysis" : "\u{1F4E7} \u5206\u6790\u6458\u8981"}</div>
+            <button onClick={() => navigator.clipboard && navigator.clipboard.writeText(txt)} style={{ padding:"3px 10px", borderRadius:6, border:"1px solid "+C.arm, cursor:"pointer", background:C.armLight, color:C.arm, fontSize:10, fontWeight:600, fontFamily:FONT }}>{rIsEn ? "Copy" : "\u590D\u5236"}</button>
+          </div>
+          <div style={{ padding:10, background:C.cardAlt, borderRadius:10, fontSize:10, color:C.textSec, lineHeight:1.7, whiteSpace:"pre-wrap", fontFamily:FONT, border:"1px solid "+C.borderLight, maxHeight:250, overflow:"auto" }}>{txt}</div>
+        </div>
+        <div style={{ marginTop:8, textAlign:"center", fontSize:8, color:C.textMuted }}>Product by JMJ. All rights reserved.</div>
+      </div>
+    );
+  }
+
+  /* MAIN VIEW */
+  return (
+    <div style={{ fontFamily:FONT, background:C.bg, minHeight:"100vh", color:C.text, maxWidth:480, margin:"0 auto", paddingTop:56, paddingBottom:32 }}>
+      <GlobalStyles />
+      <div style={{ position:"fixed", top:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, zIndex:100, background:"transparent", borderBottom:"none", boxShadow:"none" }}>
+        <div style={{ padding:"10px 16px", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+          <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+            <button onClick={onBack} style={{ background:"none", border:"none", cursor:"pointer", fontSize:20, color:C.textDim }}>&#8249;</button>
+            <LogoSVG size={28} />
+            <div>
+              <div style={{ fontSize:14, fontWeight:700 }}>{isEn ? "Points Comparison" : "买点方案对比"}</div>
+              <div style={{ fontSize:9, color:C.textMuted }}>POINTS COMPARISON by JMJ</div>
+            </div>
+          </div>
+          <div style={{ display:"flex", gap:4 }}>
+            <button onClick={() => setShowReport(true)} style={{ background:C.fixed, border:"none", borderRadius:8, padding:"5px 10px", cursor:"pointer", fontSize:11, color:C.white, fontFamily:FONT, fontWeight:600 }}>📋 生成报告</button>
+            <button onClick={() => { setRateOptions([{id:1,rate:7,points:0},{id:2,rate:6.75,points:0.5}]); setSelectedMonth(60); }} style={{ background:C.cardAlt, border:"1px solid "+C.border, borderRadius:8, padding:"5px 10px", cursor:"pointer", fontSize:11, color:C.textSec, fontFamily:FONT, fontWeight:600 }}>🔄 重新模拟</button>
+          </div>
+        </div>
+      </div>
+
+      {/* Loan Input */}
+      <div style={{ padding:"10px 16px 0" }}>
+        <div style={{ background:C.card, border:"1px solid "+C.borderLight, borderRadius:18, padding:20, boxShadow:C.shadow }}>
+          <div style={{ fontSize:13, fontWeight:700, marginBottom:8 }}>{isEn?"Loan Amount":"贷款金额"}</div>
+          <div style={{ display:"flex", gap:6, marginBottom:12, background:C.cardAlt, borderRadius:10, padding:3 }}>
+            {[{k:"price",l:isEn?"By Home Price":"通过房价推算"},{k:"direct",l:isEn?"Direct Input":"直接输入金额"}].map(t => {
+              const a = t.k === loanMode;
+              return <button key={t.k} onClick={() => setLoanMode(t.k)} style={{ flex:1, padding:"6px 2px", borderRadius:8, border:"none", cursor:"pointer", background:a ? C.white : "transparent", boxShadow:a ? C.shadow : "none", fontFamily:FONT, fontSize:11, fontWeight:a ? 700 : 500, color:a ? C.fixed : C.textDim }}>{t.l}</button>;
+            })}
+          </div>
+          {loanMode === "price" ? <>
+            <AmountSlider label={isEn?"Home Price":"房价"} value={homePrice} onChange={setHomePrice} min={200000} max={3000000} step={25000} color={C.fixed} />
+            <div style={{ marginBottom:12 }}>
+              <div style={{ display:"flex", justifyContent:"space-between", marginBottom:6 }}>
+                <span style={{ fontSize:12, color:C.textSec, fontWeight:600 }}>{isEn?"Down Payment":"首付比例"}</span>
+                <span style={{ fontSize:14, fontWeight:700, fontFamily:MONO, color:C.fixed }}>{downPct}% = {fmtD(homePrice * downPct / 100)}</span>
+              </div>
+              <input type="range" min={3} max={50} step={1} value={downPct} onChange={e => setDownPct(Number(e.target.value))}
+                style={{ width:"100%", height:5, borderRadius:3, outline:"none", appearance:"none", WebkitAppearance:"none", cursor:"pointer", background:`linear-gradient(to right,${C.fixed} 0%,${C.fixed} ${((downPct-3)/47)*100}%,${C.border} ${((downPct-3)/47)*100}%,${C.border} 100%)` }} />
+            </div>
+            <div style={{ padding:"8px 12px", background:C.fixedLight, borderRadius:10, fontSize:12, fontWeight:600, color:C.fixed, textAlign:"center" }}>{isEn?"Loan Amount":"贷款金额"}: {fmtD(loanAmount)}</div>
+          </> : <AmountSlider label={isEn?"Loan Amount":"贷款金额"} value={directLoan} onChange={setDirectLoan} min={100000} max={2000000} step={25000} color={C.fixed} />}
+          <div style={{ marginBottom:16 }}>
+            <div style={{ fontSize:12, color:C.textSec, fontWeight:600, marginBottom:6 }}>{isEn ? "Loan Term" : "\u8D37\u6B3E\u671F\u9650"}</div>
+            <div style={{ display:"flex", gap:6, background:C.cardAlt, borderRadius:12, padding:3 }}>
+              {[15,20,25,30].map(y => {
+                const a = y === termYears;
+                return <button key={y} onClick={() => setTermYears(y)} style={{ flex:1, padding:"8px 2px", borderRadius:10, border:"none", cursor:"pointer", background:a ? C.white : "transparent", boxShadow:a ? C.shadow : "none", fontFamily:FONT, fontSize:13, fontWeight:a ? 700 : 500, color:a ? C.fixed : C.textDim }}>{y}{isEn ? "yr" : "\u5E74"}</button>;
+              })}
+            </div>
+          </div>
+
+          {/* Rate Options */}
+          <div style={{ fontSize:13, color:C.text, fontWeight:600, marginBottom:8 }}>{isEn ? "Rate Options" : "\u5229\u7387\u65B9\u6848"} <span style={{ fontSize:10, color:C.textMuted }}>{isEn ? "2-7 options" : "2-7\u4E2A\u65B9\u6848"}</span></div>
+          {minWarn && <div style={{ padding:"8px 12px", marginBottom:8, borderRadius:10, background:C.warnLight, border:"1px solid "+C.warn+"30", fontSize:12, color:C.warn, fontWeight:600 }}>{isEn ? "At least 2 options needed" : "\u81F3\u5C11\u9700\u89812\u4E2A\u65B9\u6848"}</div>}
+          {rateOptions.map((opt, idx) => (
+            <div key={opt.id} style={{ display:"flex", alignItems:"center", gap:6, marginBottom:6, padding:"8px 10px", background:idx === 0 ? C.dangerLight : C.fixedLight, borderRadius:12 }}>
+              <div style={{ width:6, height:6, borderRadius:"50%", background:idx === 0 ? C.danger : PT_COLORS[idx % PT_COLORS.length] }} />
+              <div style={{ flex:1, display:"flex", gap:6, alignItems:"center" }}>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontSize:9, color:C.textMuted, marginBottom:2 }}>{isEn ? "Rate" : "\u5229\u7387"}</div>
+                  <input type="number" key={"r"+opt.id} defaultValue={opt.rate} step="0.001" min="1" max="15"
+                    onChange={e => { const v = parseFloat(e.target.value); if (!isNaN(v) && v > 0 && v <= 15) updateOption(opt.id, "rate", Math.round(v * 1000) / 1000); }}
+                    onBlur={e => { const v = parseFloat(e.target.value); if (isNaN(v) || v <= 0) e.target.value = opt.rate; }}
+                    style={{ width:"100%", padding:"5px 6px", borderRadius:6, border:"1px solid "+C.border, fontSize:13, fontFamily:MONO, fontWeight:700, color:C.text, outline:"none", background:C.white, textAlign:"center" }} />
+                </div>
+                <div style={{ fontSize:14, color:C.textMuted }}>/</div>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontSize:9, color:C.textMuted, marginBottom:2 }}>{isEn ? "Points" : "\u70B9\u6570"}</div>
+                  <input type="number" key={"p"+opt.id} defaultValue={opt.points} step="0.125" min="0" max="5"
+                    onChange={e => { const v = parseFloat(e.target.value); if (!isNaN(v) && v >= 0 && v <= 5) updateOption(opt.id, "points", Math.round(v * 1000) / 1000); }}
+                    onBlur={e => { const v = parseFloat(e.target.value); if (isNaN(v) || v < 0) e.target.value = opt.points; }}
+                    style={{ width:"100%", padding:"5px 6px", borderRadius:6, border:"1px solid "+C.border, fontSize:13, fontFamily:MONO, fontWeight:700, color:C.text, outline:"none", background:C.white, textAlign:"center" }} />
+                </div>
+              </div>
+              <button onClick={() => removeOption(opt.id)} style={{ background:"none", border:"none", cursor:"pointer", fontSize:16, color:C.textMuted, padding:"0 4px" }}>{"\u2715"}</button>
+            </div>
+          ))}
+          {rateOptions.length < 7 && <button onClick={addOption} style={{ width:"100%", padding:10, borderRadius:12, border:"1.5px dashed "+C.fixed+"40", background:"transparent", cursor:"pointer", fontSize:13, fontWeight:600, color:C.fixed, fontFamily:FONT }}>+ {isEn ? "Add Option" : "\u6DFB\u52A0\u65B9\u6848"}</button>}
+        </div>
+      </div>
+
+      {/* Timeline */}
+      <div style={{ padding:"10px 16px 0" }}>
+        <div style={{ background:C.card, border:"1px solid "+C.borderLight, borderRadius:18, padding:"14px 18px", boxShadow:C.shadow }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+            <span style={{ fontSize:11, color:C.textDim, fontWeight:600 }}>{isEn ? "HOLDING PERIOD" : "\u6301\u6709\u65F6\u95F4"}</span>
+            <div style={{ padding:"5px 12px", borderRadius:20, background:C.fixedLight }}><span style={{ fontSize:13, fontWeight:700, color:C.fixed, fontFamily:MONO }}>{holdLabel}</span></div>
+          </div>
+          <div ref={trackRef} onPointerDown={onScrubDown} style={{ position:"relative", height:44, cursor:"pointer", touchAction:"none", userSelect:"none" }}>
+            <div style={{ position:"absolute", top:18, left:0, right:0, height:8, borderRadius:4, background:C.border }} />
+            <div style={{ position:"absolute", top:18, left:0, width:scrubPct+"%", height:8, borderRadius:4, background:C.fixed }} />
+            <div style={{ position:"absolute", top:10, left:scrubPct+"%", transform:"translateX(-50%)", width:24, height:24, borderRadius:"50%", background:C.white, border:"3px solid "+C.fixed, boxShadow:"0 2px 10px "+C.fixed+"35" }} />
+          </div>
+        </div>
+      </div>
+
+      {/* Comparison Table */}
+      <div style={{ padding:"8px 16px 0" }}>
+        <div style={{ background:C.card, border:"1px solid "+C.borderLight, borderRadius:18, padding:18, boxShadow:C.shadow }}>
+          <div style={{ fontSize:13, fontWeight:700, marginBottom:14 }}>{isEn ? "Comparison" : "\u65B9\u6848\u5BF9\u6BD4"} <span style={{ fontSize:10, color:C.textMuted, fontWeight:400 }}>{holdLabel}</span></div>
+          {scenarios.map((s, i) => {
+            const tc = s.monthly[curMonth - 1].totalInterest + s.pointCost;
+            const best = bestAtMonth && tc <= bestAtMonth.tc + 1;
+            return (
+              <div key={i} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"8px 0", borderBottom:"1px solid "+C.borderLight }}>
+                <div>
+                  <div style={{ fontSize:12, fontWeight:700, color:s.color, fontFamily:MONO }}>{s.label}</div>
+                  <div style={{ fontSize:10, color:C.textMuted }}>{fmtD(s.payment)}/mo {s.monthlySaving > 0 ? ("(" + (isEn ? "save " : "\u7701") + fmtD(s.monthlySaving) + ")") : ""}</div>
+                </div>
+                <div style={{ textAlign:"right" }}>
+                  <div style={{ fontSize:14, fontWeight:700, color:best ? C.fixed : C.text, fontFamily:MONO }}>{fmtD(tc)}</div>
+                  <div style={{ fontSize:9, color:C.textDim }}>{s.breakEvenYears ? ("B/E " + s.breakEvenYears + (isEn ? "yr" : "\u5E74")) : ""}{best ? (isEn ? " \u2B50 BEST" : " \u2B50 \u6700\u4F18") : ""}</div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div style={{ padding:"8px 16px 0" }}><GlossarySection terms={POINTS_GLOSSARY} en={isEn} /></div>
+      <BrandingFooter />
+    </div>
+  );
+}
+
+
+const REFI_GLOSSARY = [
+  { term:"Refinance", cn:"再融资/转贷", desc:"用新贷款替换现有贷款，通常为了获得更低利率、降低月供或改变贷款期限。", descEn:"Replacing your current mortgage with a new one, typically to get a lower rate, reduce monthly payment, or change loan term." },
+  { term:"CEMA", cn:"贷款合并修改协议", desc:"纽约州特有的Consolidation Extension Modification Agreement。做CEMA可以只对「新增贷款金额」（新贷款-旧余额）缴纳抵押贷款税，大幅节省closing cost。", descEn:"NY-specific Consolidation Extension Modification Agreement. With CEMA, mortgage tax is only paid on the 'new money' (new loan minus existing balance), significantly reducing closing costs." },
+  { term:"Mortgage Tax", cn:"抵押贷款记录税", desc:"纽约州在记录新贷款时征收的税。NYC约1.8-1.925%，纽约州其他地区约0.5%。不做CEMA则对全部贷款额征收。", descEn:"Tax levied by NY State when recording a new mortgage. NYC: ~1.8-1.925%, rest of NY: ~0.5%. Without CEMA, tax applies to the full loan amount." },
+  { term:"Closing Cost", cn:"过户/结算费用", desc:"完成再融资所需的各项费用总和，包括银行费用、第三方费用和政府税费。不包括escrow和prepaid。", descEn:"Total fees to complete a refinance, including lender fees, third-party fees, and government taxes. Excludes escrow and prepaids." },
+  { term:"Break-Even", cn:"回本时间", desc:"通过月供节省收回closing cost所需的时间。如果计划在此之前卖房，refi可能不划算。", descEn:"Time needed for monthly savings to recoup total closing costs. If you sell before break-even, the refinance may not be worthwhile." },
+];
+
+function RefiAnalyzer({ onBack, lang }) {
+  const isEn = lang === "en";
+  // Current loan
+  const [refiMode, setRefiMode] = React.useState("direct");
+  const [refiHomeVal, setRefiHomeVal] = React.useState(600000);
+  const [refiOwedPct, setRefiOwedPct] = React.useState(75);
+  const [curRate, setCurRate] = React.useState(7.125);
+  const [curBalance, setCurBalance] = React.useState(450000);
+  const refiLoan = refiMode === "home" ? Math.round(refiHomeVal * refiOwedPct / 100) : curBalance;
+  const [curRemainYears, setCurRemainYears] = React.useState(28);
+  // New loan
+  const [newRate, setNewRate] = React.useState(6.500);
+  const [newTerm, setNewTerm] = React.useState(30);
+  const [newPoints, setNewPoints] = React.useState(0);
+  // Closing costs
+  const [processingFee, setProcessingFee] = React.useState(1500);
+  const [underwritingFee, setUnderwritingFee] = React.useState(900);
+  const [creditReport, setCreditReport] = React.useState(50);
+  const [attorney, setAttorney] = React.useState(1500);
+  const [titleIns, setTitleIns] = React.useState(2000);
+  const [govRecording, setGovRecording] = React.useState(500);
+  // NY Mortgage Tax
+  const [taxArea, setTaxArea] = React.useState("nyc_high"); // "nyc_high"|"nyc_low"|"non_nyc"|"none"
+  const [useCEMA, setUseCEMA] = React.useState(true);
+  const [cemaFee, setCemaFee] = React.useState(2000);
+  // UI
+  const [showCosts, setShowCosts] = React.useState(false);
+  const [showReport, setShowReport] = React.useState(false);
+  const [reportLang, setReportLang] = React.useState(lang);
+  const [holdMonth, setHoldMonth] = React.useState(60);
+
+  const newLoanAmount = curBalance; // refi same balance
+  const pointCost = newPoints * 0.01 * newLoanAmount;
+
+  // Mortgage tax calc
+  const taxRates = { nyc_high: 0.01925, nyc_low: 0.018, non_nyc: 0.005, none: 0 };
+  const taxRate = taxRates[taxArea] || 0;
+  const taxableAmount = useCEMA ? Math.max(0, newLoanAmount - curBalance) : newLoanAmount;
+  // For pure refi (same balance), CEMA taxable = 0 if no cash-out
+  const mortgageTax = Math.round(taxableAmount * taxRate);
+  const cemaTotal = useCEMA ? cemaFee : 0;
+
+  const totalClosing = processingFee + underwritingFee + creditReport + attorney + titleIns + govRecording + pointCost + mortgageTax + cemaTotal;
+
+  // Payments
+  const curPayment = pmtCalc(curRate, curRemainYears * 12, curBalance);
+  const newPayment = pmtCalc(newRate, newTerm * 12, newLoanAmount);
+  const monthlySaving = curPayment - newPayment;
+  const breakEvenMonths = monthlySaving > 0 ? Math.ceil(totalClosing / monthlySaving) : null;
+  const breakEvenYears = breakEvenMonths ? (breakEvenMonths / 12).toFixed(1) : null;
+  const newAPR = calcAPR(newRate, newLoanAmount, pointCost + processingFee + underwritingFee, newTerm * 12);
+
+  // Net savings at holding period
+  const holdYrs = holdMonth / 12;
+  const holdLabel = holdYrs % 1 === 0 ? `${holdYrs}${isEn?"yr":"年"}` : `${holdYrs.toFixed(1)}${isEn?"yr":"年"}`;
+  const netSavings = monthlySaving * holdMonth - totalClosing;
+  const worthIt = monthlySaving > 0 && (breakEvenMonths ? holdMonth >= breakEvenMonths : false);
+
+  // Total interest comparison
+  const curTotalInt = React.useMemo(() => { let b=curBalance,ti=0; const mp=curPayment; for(let m=0;m<curRemainYears*12;m++){const ip=b*(curRate/100/12);b=Math.max(0,b-(mp-ip));ti+=ip;} return ti; }, [curBalance,curRate,curRemainYears,curPayment]);
+  const newTotalInt = React.useMemo(() => { let b=newLoanAmount,ti=0; const mp=newPayment; for(let m=0;m<newTerm*12;m++){const ip=b*(newRate/100/12);b=Math.max(0,b-(mp-ip));ti+=ip;} return ti; }, [newLoanAmount,newRate,newTerm,newPayment]);
+
+  const scrubRef = React.useRef(null);
+  const maxHold = newTerm * 12;
+  const handleScrub = React.useCallback(cx => { if(!scrubRef.current) return; const r=scrubRef.current.getBoundingClientRect(); setHoldMonth(Math.max(1,Math.round(Math.max(0,Math.min(1,(cx-r.left)/r.width))*(maxHold-1))+1)); }, [maxHold]);
+  const onScrubDown = React.useCallback(e => { e.preventDefault(); handleScrub(e.clientX); const mv=ev=>handleScrub(ev.clientX); const up=()=>{window.removeEventListener("pointermove",mv);window.removeEventListener("pointerup",up);}; window.addEventListener("pointermove",mv); window.addEventListener("pointerup",up); }, [handleScrub]);
+
+  // Insight
+  const getInsight = () => {
+    if (monthlySaving <= 0) return { icon:"⚠️", color:C.danger, bg:C.dangerLight, title:isEn?"New rate does not reduce payment":"新利率未降低月供", desc:isEn?"New loan payment is not lower than current. Refinance is not economically beneficial.":"新贷款月供不低于现有贷款，Refinance在经济上不划算。" };
+    if (!breakEvenMonths) return { icon:"⏳", color:C.warn, bg:C.warnLight, title:isEn?"Break-even too long":"回本时间过长", desc:isEn?"Monthly savings cannot recoup closing costs in a reasonable timeframe.":"月供节省无法在合理时间内收回closing cost。" };
+    if (worthIt) return { icon:"✅", color:C.arm, bg:C.armLight, title:`${isEn?"Refi worth it · B/E "+breakEvenYears+"yr":"Refi划算 · 回本"+breakEvenYears+"年"}`, desc:isEn?`Net savings ${fmtD(netSavings)} over ${holdLabel}. Save ${fmtD(monthlySaving)}/mo, break-even at ${breakEvenYears}yr.`:`持有${holdLabel}可净省${fmtD(netSavings)}。每月省${fmtD(monthlySaving)}，${breakEvenYears}年回本后持续受益。` };
+    return { icon:"⏳", color:C.warn, bg:C.warnLight, title:`${isEn?"Hold >"+breakEvenYears+"yr needed":"需持有超过"+breakEvenYears+"年"}`, desc:`${isEn?"Break-even at "+breakEvenYears+"yr. Hold "+holdLabel+", costs not recouped":"回本需"+breakEvenYears+"年。当前持有"+holdLabel+"，Closing cost尚未收回"}，${isEn?(netSavings>=0?"Net Save":"Net Loss"):(netSavings>=0?"净省":"净亏")}${fmtD(Math.abs(netSavings))}。` };
+  };
+  const insight = getInsight();
+
+  const CostRow = ({label,value,onChange}) => (
+    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"6px 0", borderBottom:`1px solid ${C.borderLight}` }}>
+      <span style={{ fontSize:12, color:C.textSec }}>{label}</span>
+      <input type="number" key={value} defaultValue={value}
+        onChange={e=>{const v=parseInt(e.target.value);if(!isNaN(v)&&v>=0)onChange(v);}}
+        onBlur={e=>{if(!e.target.value)e.target.value=value;}}
+        style={{ width:80, padding:"4px 6px", borderRadius:6, border:`1px solid ${C.border}`, fontSize:12, fontFamily:MONO, textAlign:"right", outline:"none", background:C.white }} />
+    </div>
+  );
+
+  /* Report */
+  if (showReport) {
+    const isEn = reportLang === "en";
+    const genText = () => {
+      const L = [];
+      L.push(isEn? "REFINANCE ANALYSIS" : "再融资分析报告");
+      L.push("");
+      L.push(isEn? `Current: ${fmtP(curRate)} | Balance ${fmtD(curBalance)} | ${curRemainYears}yr remaining | Payment ${fmtD(curPayment)}/mo` : `现有贷款：${fmtP(curRate)} | 余额${fmtD(curBalance)} | 剩余${curRemainYears}${isEn?"yr":"年"} | 月供${fmtD(curPayment)}`);
+      L.push(isEn? `New: ${fmtP(newRate)} | ${newTerm}yr | ${newPoints}pt | Payment ${fmtD(newPayment)}/mo | APR ${fmtP(newAPR)}` : `新贷款：${fmtP(newRate)} | ${newTerm}年 | ${newPoints}点 | 月供${fmtD(newPayment)} | APR ${fmtP(newAPR)}`);
+      L.push("");
+      L.push(isEn? `Monthly Savings: ${fmtD(monthlySaving)}` : `月供节省：${fmtD(monthlySaving)}`);
+      L.push(isEn? `Total Closing Cost: ${fmtD(totalClosing)}` : `总Closing Cost：${fmtD(totalClosing)}`);
+      if (taxArea !== "none") L.push(isEn? `  Mortgage Tax: ${fmtD(mortgageTax)}${useCEMA?" (CEMA)":""}` : `  抵押税：${fmtD(mortgageTax)}${useCEMA?"（CEMA）":""}`);
+      L.push(isEn? `Break-Even: ${breakEvenYears ? breakEvenYears+"yr" : "N/A"}` : `回本时间：${breakEvenYears ? breakEvenYears+"年" : "—"}`);
+      L.push(isEn? `Net Savings (${holdLabel}): ${fmtD(netSavings)}` : `净节省（持有${holdLabel}）：${fmtD(netSavings)}`);
+      L.push("");
+      L.push(isEn? "RECOMMENDATION:" : "建议：");
+      L.push(isEn? insight.desc.replace(/[^\x00-\x7F]/g,"") : insight.desc);
+      if (isEn && insight.desc.includes("划算")) L.push(`Refinancing is recommended. Monthly savings of ${fmtD(monthlySaving)} with a break-even at ${breakEvenYears} years. Net savings of ${fmtD(netSavings)} over ${holdLabel.replace("年","yr")}.`);
+      else if (isEn) L.push(`${monthlySaving > 0 ? `Monthly savings would be ${fmtD(monthlySaving)}, but closing costs of ${fmtD(totalClosing)} require ${breakEvenYears || "N/A"} years to recoup.` : "The new rate does not reduce monthly payments."}`);
+      L.push("");
+      L.push(isEn? "Disclaimer: For informational purposes only." : "声明：本分析仅供参考。");
+      return L.join("\n");
+    };
+    const txt = genText();
+    return (
+      <div style={{ fontFamily:FONT, background:C.white, minHeight:"100vh", color:C.text, maxWidth:480, margin:"0 auto", WebkitFontSmoothing:"antialiased" }}>
+        <GlobalStyles />
+        <div style={{ padding:"14px 16px 16px" }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+            <div style={{ display:"flex", gap:0, background:C.cardAlt, borderRadius:8, padding:2 }}>
+              {[{k:"cn",l:"中文"},{k:"en",l:"EN"}].map(t=>{const a=t.k===reportLang;return <button key={t.k} onClick={()=>setReportLang(t.k)} style={{ padding:"4px 12px", borderRadius:6, border:"none", cursor:"pointer", background:a?C.purple:"transparent", color:a?C.white:C.textDim, fontSize:11, fontWeight:a?700:500, fontFamily:FONT }}>{t.l}</button>;})}
+            </div>
+            <button onClick={()=>setShowReport(false)} style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:6, padding:"3px 10px", cursor:"pointer", fontSize:11, color:C.textDim, fontFamily:FONT }}>✕</button>
+          </div>
+          <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
+            <LogoSVG size={28} />
+            <div><div style={{ fontSize:15, fontWeight:700 }}>{isEn?"Refinance Analysis Report":"再融资分析报告"}</div><div style={{ fontSize:9, color:C.textMuted }}>Rate Navigator by JMJ · {new Date().toLocaleDateString(isEn?"en-US":"zh-CN")}</div></div>
+          </div>
+          <div style={{ height:1.5, background:`linear-gradient(90deg,${C.purple},${C.arm})`, borderRadius:1, marginBottom:10 }} />
+          {/* Key metrics */}
+          <div style={{ display:"flex", gap:4, marginBottom:8, flexWrap:"wrap" }}>
+            {[{l:isEn?"Current":"现有",v:`${fmtP(curRate)} · ${fmtD(curPayment)}/mo`},{l:isEn?"New":"新",v:`${fmtP(newRate)} · ${fmtD(newPayment)}/mo`},{l:"APR",v:fmtP(newAPR)},{l:isEn?"Saving":"月省",v:fmtD(monthlySaving)},{l:isEn?"Closing":"费用",v:fmtD(totalClosing)},{l:isEn?"B/E":"回本",v:breakEvenYears?(breakEvenYears+(isEn?"yr":"年")):"—"},{l:isEn?"Net":"净省",v:fmtD(netSavings)}].map(x=>
+              <div key={x.l} style={{ flex:1, minWidth:55, padding:"5px 4px", background:C.cardAlt, borderRadius:8, textAlign:"center" }}>
+                <div style={{ fontSize:7, color:C.textDim }}>{x.l}</div><div style={{ fontSize:10, fontWeight:700, fontFamily:MONO, color:C.text }}>{x.v}</div>
+              </div>
+            )}
+          </div>
+          <div style={{ padding:"10px 12px", borderRadius:12, background:insight.bg, border:`1px solid ${insight.color}20`, marginBottom:8 }}>
+            <div style={{ fontSize:13, fontWeight:700, color:insight.color }}>{insight.icon} {isEn?(worthIt?"Refinance recommended":"Refinance may not be optimal"):insight.title}</div>
+          </div>
+          {/* Analysis text */}
+          <div style={{ marginTop:8, borderTop:`1px solid ${C.border}`, paddingTop:8 }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:6 }}>
+              <div style={{ fontSize:10, fontWeight:700 }}>{isEn?"📧 Analysis":"📧 分析摘要"}</div>
+              <button onClick={()=>navigator.clipboard?.writeText(txt)} style={{ padding:"3px 10px", borderRadius:6, border:`1px solid ${C.purple}`, cursor:"pointer", background:C.purpleLight, color:C.purple, fontSize:10, fontWeight:600, fontFamily:FONT }}>{isEn?"Copy":"复制"}</button>
+            </div>
+            <div style={{ padding:10, background:C.cardAlt, borderRadius:10, fontSize:10, color:C.textSec, lineHeight:1.7, whiteSpace:"pre-wrap", fontFamily:FONT, border:`1px solid ${C.borderLight}`, maxHeight:250, overflow:"auto" }}>{txt}</div>
+          </div>
+          <div style={{ marginTop:8, textAlign:"center", fontSize:8, color:C.textMuted }}>Product by JMJ. All rights reserved.</div>
+        </div>
+      </div>
+    );
+  }
+
+  /* Main UI */
+  return (
+    <div style={{ fontFamily:FONT, background:C.bg, minHeight:"100vh", color:C.text, maxWidth:480, margin:"0 auto", paddingTop:56, paddingBottom:32, WebkitFontSmoothing:"antialiased" }}>
+      <GlobalStyles />
+      <div style={{ position:"fixed", top:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, zIndex:100, background:"transparent", borderBottom:"none", boxShadow:"none" }}>
+        <div style={{ padding:"10px 16px", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+          <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+            <button onClick={onBack} style={{ background:"none", border:"none", cursor:"pointer", fontSize:20, color:C.textDim, padding:"2px 6px" }}>‹</button>
+            <LogoSVG size={28} />
+            <div><div style={{ fontSize:14, fontWeight:700, color:C.text }}>再融资分析</div><div style={{ fontSize:9, color:C.textMuted }}>REFI ANALYZER by JMJ</div></div>
+          </div>
+          <div style={{ display:"flex", gap:4 }}>
+            <button onClick={()=>setShowReport(true)} style={{ background:C.purple, border:"none", borderRadius:8, padding:"5px 10px", cursor:"pointer", fontSize:11, color:C.white, fontFamily:FONT, fontWeight:600 }}>📋 生成报告</button>
+            <button onClick={()=>{ setCurRate(7.125); setCurBalance(450000); setCurRemainYears(28); setNewRate(6.5); setNewPoints(0); setHoldMonth(60); }} style={{ background:C.cardAlt, border:"1px solid "+C.border, borderRadius:8, padding:"5px 10px", cursor:"pointer", fontSize:11, color:C.textSec, fontFamily:FONT, fontWeight:600 }}>🔄 重新模拟</button>
+          </div>
+        </div>
+      </div>
+
+      {/* Current Loan */}
+      <div style={{ padding:"10px 16px 0" }}>
+        <div style={{ background:C.card, border:`1px solid ${C.borderLight}`, borderRadius:18, padding:20, boxShadow:C.shadow }}>
+          <div style={{ fontSize:14, fontWeight:700, color:C.danger, marginBottom:10 }}>{isEn?"🏠 Current Loan ":"🏠 现有贷款 "}<span style={{ fontSize:10, fontWeight:400, color:C.textMuted }}>Current Loan</span></div>
+          <RateInput label={isEn?"Current Rate":"现有利率"} labelEn="Current Rate" value={curRate} onChange={setCurRate} min={2} max={12} step={0.001} color={C.danger} />
+          <div style={{ fontSize:12, fontWeight:600, marginBottom:6 }}>{isEn?"Remaining Balance":"剩余贷款余额"}</div>
+          <div style={{ display:"flex", gap:6, marginBottom:10, background:C.cardAlt, borderRadius:10, padding:3 }}>
+            {[{k:"home",l:isEn?"By Home Value":"通过房价推算"},{k:"direct",l:isEn?"Direct Input":"直接输入金额"}].map(t => {
+              const a = t.k === refiMode;
+              return <button key={t.k} onClick={() => setRefiMode(t.k)} style={{ flex:1, padding:"5px 2px", borderRadius:8, border:"none", cursor:"pointer", background:a ? C.white : "transparent", boxShadow:a ? C.shadow : "none", fontFamily:FONT, fontSize:10, fontWeight:a ? 700 : 500, color:a ? C.danger : C.textDim }}>{t.l}</button>;
+            })}
+          </div>
+          {refiMode === "home" ? <>
+            <AmountSlider label={isEn?"Home Value":"当前房价"} value={refiHomeVal} onChange={v => { setRefiHomeVal(v); setCurBalance(Math.round(v * refiOwedPct / 100)); }} min={200000} max={3000000} step={25000} color={C.danger} />
+            <div style={{ marginBottom:10 }}>
+              <div style={{ display:"flex", justifyContent:"space-between", marginBottom:5 }}>
+                <span style={{ fontSize:11, color:C.textSec, fontWeight:600 }}>{isEn?"Remaining LTV":"剩余贷款比例"}</span>
+                <span style={{ fontSize:13, fontWeight:700, fontFamily:MONO, color:C.danger }}>{refiOwedPct}%</span>
+              </div>
+              <input type="range" min={10} max={97} step={1} value={refiOwedPct} onChange={e => { setRefiOwedPct(Number(e.target.value)); setCurBalance(Math.round(refiHomeVal * Number(e.target.value) / 100)); }}
+                style={{ width:"100%", height:5, borderRadius:3, outline:"none", appearance:"none", WebkitAppearance:"none", cursor:"pointer", background:`linear-gradient(to right,${C.danger} 0%,${C.danger} ${((refiOwedPct-10)/87)*100}%,${C.border} ${((refiOwedPct-10)/87)*100}%,${C.border} 100%)` }} />
+            </div>
+            <div style={{ padding:"6px 10px", background:C.dangerLight, borderRadius:8, fontSize:11, fontWeight:600, color:C.danger, textAlign:"center", marginBottom:8 }}>{isEn?"Remaining Balance":"剩余余额"}: {fmtD(curBalance)}</div>
+          </> : <AmountSlider label={isEn?"Remaining Balance":"剩余贷款余额"} value={curBalance} onChange={setCurBalance} min={50000} max={2000000} step={10000} color={C.danger} />}
+          <div style={{ marginBottom:8 }}>
+            <div style={{ display:"flex", justifyContent:"space-between", marginBottom:6 }}>
+              <span style={{ fontSize:13, color:C.text, fontWeight:600 }}>{isEn?"Remaining Term ":"剩余年限 "}<span style={{ fontSize:10, color:C.textMuted }}>Remaining Term</span></span>
+              <span style={{ fontSize:16, fontWeight:700, fontFamily:MONO, color:C.danger }}>{curRemainYears}{isEn?"yr":"年"}</span>
+            </div>
+            <input type="range" min={1} max={30} step={1} value={curRemainYears} onChange={e=>setCurRemainYears(Number(e.target.value))}
+              style={{ width:"100%", height:5, borderRadius:3, outline:"none", appearance:"none", WebkitAppearance:"none", cursor:"pointer", background:`linear-gradient(to right,${C.danger} 0%,${C.danger} ${(curRemainYears/30)*100}%,${C.border} ${(curRemainYears/30)*100}%,${C.border} 100%)` }} />
+          </div>
+          <div style={{ padding:"8px 12px", background:C.dangerLight, borderRadius:10, fontSize:12, color:C.danger }}>
+            当前月供 <b style={{ fontFamily:MONO }}>{fmtD(curPayment)}</b>
+          </div>
+        </div>
+      </div>
+
+      {/* New Loan */}
+      <div style={{ padding:"8px 16px 0" }}>
+        <div style={{ background:C.card, border:`1px solid ${C.borderLight}`, borderRadius:18, padding:20, boxShadow:C.shadow }}>
+          <div style={{ fontSize:14, fontWeight:700, color:C.arm, marginBottom:14 }}>{isEn?"📝 New Loan ":"📝 新贷款方案 "}<span style={{ fontSize:10, fontWeight:400, color:C.textMuted }}>New Loan</span></div>
+          <RateInput label={isEn?"New Rate":"新利率"} labelEn="New Rate" value={newRate} onChange={setNewRate} min={2} max={10} step={0.001} color={C.arm} />
+          <div style={{ display:"flex", gap:8, marginBottom:14 }}>
+            <div style={{ flex:1 }}>
+              <div style={{ fontSize:12, color:C.textSec, fontWeight:600, marginBottom:6 }}>{isEn?"Term":"期限 Term"}</div>
+              <div style={{ display:"flex", gap:4, background:C.cardAlt, borderRadius:10, padding:3 }}>
+                {[15,20,25,30].map(y=>{const a=y===newTerm;return <button key={y} onClick={()=>setNewTerm(y)} style={{ flex:1, padding:"6px 2px", borderRadius:8, border:"none", cursor:"pointer", background:a?C.white:"transparent", boxShadow:a?C.shadow:"none", fontFamily:FONT, fontSize:12, fontWeight:a?700:500, color:a?C.arm:C.textDim }}>{y}</button>;})}
+              </div>
+            </div>
+            <div style={{ flex:1 }}>
+              <div style={{ fontSize:12, color:C.textSec, fontWeight:600, marginBottom:6 }}>{isEn?"Points":"买点 Points"}</div>
+              <input type="number" defaultValue={newPoints} key={newPoints} step="0.125" min="0" max="4"
+                onChange={e=>{const v=parseFloat(e.target.value);if(!isNaN(v)&&v>=0)setNewPoints(Math.round(v*1000)/1000);}}
+                onBlur={e=>{if(!e.target.value)e.target.value=newPoints;}}
+                style={{ width:"100%", padding:"7px 8px", borderRadius:8, border:`1px solid ${C.border}`, fontSize:14, fontFamily:MONO, fontWeight:700, textAlign:"center", outline:"none", color:C.arm }} />
+            </div>
+          </div>
+          <div style={{ display:"flex", gap:6 }}>
+            <div style={{ flex:1, padding:"8px 10px", background:C.armLight, borderRadius:10, fontSize:11 }}>{isEn?"Pmt ":"月供 "}<b style={{ fontFamily:MONO, color:C.arm }}>{fmtD(newPayment)}</b></div>
+            <div style={{ flex:1, padding:"8px 10px", background:C.armLight, borderRadius:10, fontSize:11 }}>APR <b style={{ fontFamily:MONO, color:C.arm }}>{fmtP(newAPR)}</b></div>
+            <div style={{ flex:1, padding:"8px 10px", background:monthlySaving>0?C.armLight:C.dangerLight, borderRadius:10, fontSize:11 }}>{isEn?"Save ":"月省 "}<b style={{ fontFamily:MONO, color:monthlySaving>0?C.arm:C.danger }}>{fmtD(monthlySaving)}</b></div>
+          </div>
+        </div>
+      </div>
+
+      {/* Closing Costs */}
+      <div style={{ padding:"8px 16px 0" }}>
+        <button onClick={()=>setShowCosts(!showCosts)} style={{ width:"100%", background:C.card, border:`1px solid ${C.borderLight}`, borderRadius:16, padding:"13px 18px", cursor:"pointer", boxShadow:C.shadow, display:"flex", alignItems:"center", justifyContent:"space-between", fontFamily:FONT, fontSize:14, fontWeight:600, color:C.text }}>
+          <span>{isEn?"💰 Closing Costs ":"💰 Closing Costs "}<span style={{ fontFamily:MONO, color:C.purple }}>{fmtD(totalClosing)}</span></span>
+          <span style={{ fontSize:18, transform:showCosts?"rotate(180deg)":"", transition:"transform .25s", color:C.textDim }}>⌄</span>
+        </button>
+      </div>
+      {showCosts && (
+        <div style={{ margin:"8px 16px 0", padding:16, background:C.card, border:`1px solid ${C.borderLight}`, borderRadius:18, boxShadow:C.shadow, animation:"fadeIn .2s ease-out" }}>
+          <div style={{ fontSize:12, fontWeight:700, color:C.text, marginBottom:8 }}>{isEn?"Lender Fees ":"银行费用 "}<span style={{ color:C.textMuted, fontWeight:400 }}>Lender Fees</span></div>
+          <CostRow label={`买点费 Points (${newPoints}pt)`} value={Math.round(pointCost)} onChange={()=>{}} />
+          <CostRow label="Processing Fee" value={processingFee} onChange={setProcessingFee} />
+          <CostRow label="Underwriting Fee" value={underwritingFee} onChange={setUnderwritingFee} />
+          <CostRow label="Credit Report" value={creditReport} onChange={setCreditReport} />
+          <div style={{ fontSize:12, fontWeight:700, color:C.text, marginTop:12, marginBottom:8 }}>{isEn?"Third Party ":"第三方费用 "}<span style={{ color:C.textMuted, fontWeight:400 }}>Third Party</span></div>
+          <CostRow label="Attorney" value={attorney} onChange={setAttorney} />
+          <CostRow label="Title Insurance" value={titleIns} onChange={setTitleIns} />
+          <CostRow label="Gov Recording Fee" value={govRecording} onChange={setGovRecording} />
+
+          {/* NY Mortgage Tax */}
+          <div style={{ fontSize:12, fontWeight:700, color:C.text, marginTop:12, marginBottom:8 }}>{isEn?"Mortgage Tax ":"抵押贷款税 "}<span style={{ color:C.textMuted, fontWeight:400 }}>Mortgage Recording Tax</span></div>
+          <div style={{ display:"flex", gap:4, marginBottom:8, background:C.cardAlt, borderRadius:10, padding:3 }}>
+            {[{k:"nyc_high",l:"NYC≥$500K"},{k:"nyc_low",l:"NYC<$500K"},{k:"non_nyc",l:"NY非NYC"},{k:"none",l:"免税/其他州"}].map(t=>{const a=t.k===taxArea;return(
+              <button key={t.k} onClick={()=>setTaxArea(t.k)} style={{ flex:1, padding:"6px 2px", borderRadius:8, border:"none", cursor:"pointer", background:a?C.white:"transparent", boxShadow:a?C.shadow:"none", fontSize:9, fontWeight:a?700:500, fontFamily:FONT, color:a?C.purple:C.textDim }}>{t.l}</button>
+            );})}
+          </div>
+          {taxArea !== "none" && (
+            <div style={{ padding:10, background:C.purpleLight, borderRadius:10, marginBottom:8 }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+                <span style={{ fontSize:12, fontWeight:600, color:C.purple }}>{isEn?"Use CEMA?":"使用CEMA?"}</span>
+                <button onClick={()=>setUseCEMA(!useCEMA)} style={{ padding:"4px 14px", borderRadius:8, border:`1.5px solid ${C.purple}`, cursor:"pointer", background:useCEMA?C.purple:"transparent", color:useCEMA?C.white:C.purple, fontSize:11, fontWeight:700, fontFamily:FONT }}>{useCEMA?(isEn?"Yes ✓":"是 ✓"):(isEn?"No":"否")}</button>
+              </div>
+              {useCEMA && <CostRow label="CEMA Fee" value={cemaFee} onChange={setCemaFee} />}
+              <div style={{ fontSize:10, color:C.purple, marginTop:6, lineHeight:1.5 }}>
+                {useCEMA
+                  ? `CEMA: 仅对新增金额 ${fmtD(taxableAmount)} 缴税 → 税额 ${fmtD(mortgageTax)} + CEMA费 ${fmtD(cemaFee)}`
+                  : `全额缴税: ${fmtD(newLoanAmount)} × ${(taxRate*100).toFixed(3)}% = ${fmtD(mortgageTax)}`}
+              </div>
+            </div>
+          )}
+          <div style={{ display:"flex", justifyContent:"space-between", padding:"10px 0 4px", borderTop:`1px solid ${C.border}` }}>
+            <span style={{ fontSize:13, fontWeight:700 }}>Total Closing Cost</span>
+            <span style={{ fontSize:15, fontWeight:700, fontFamily:MONO, color:C.purple }}>{fmtD(totalClosing)}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Holding Period */}
+      <div style={{ padding:"10px 16px 0" }}>
+        <div style={{ background:C.card, border:`1px solid ${C.borderLight}`, borderRadius:18, padding:"14px 18px", boxShadow:C.shadow }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+            <span style={{ fontSize:11, color:C.textDim, fontWeight:600 }}>{isEn?"HOLDING PERIOD":"计划持有 HOLDING"}</span>
+            <div style={{ padding:"5px 12px", borderRadius:20, background:C.purpleLight }}><span style={{ fontSize:13, fontWeight:700, color:C.purple, fontFamily:MONO }}>{holdLabel}</span></div>
+          </div>
+          <div ref={scrubRef} onPointerDown={onScrubDown} style={{ position:"relative", height:44, cursor:"pointer", touchAction:"none", userSelect:"none" }}>
+            <div style={{ position:"absolute", top:18, left:0, right:0, height:8, borderRadius:4, background:C.border }} />
+            {breakEvenMonths && breakEvenMonths <= maxHold && (
+              <div style={{ position:"absolute", top:16, left:`${((breakEvenMonths-1)/(maxHold-1))*100}%`, width:2, height:12, background:C.arm, borderRadius:1 }} />
+            )}
+            <div style={{ position:"absolute", top:18, left:0, width:`${((holdMonth-1)/(maxHold-1))*100}%`, height:8, borderRadius:4, background:worthIt?C.arm:C.purple, transition:"width .02s" }} />
+            <div style={{ position:"absolute", top:10, left:`${((holdMonth-1)/(maxHold-1))*100}%`, transform:"translateX(-50%)", width:24, height:24, borderRadius:"50%", background:C.white, border:`3px solid ${worthIt?C.arm:C.purple}`, boxShadow:`0 2px 8px ${C.purple}30` }} />
+          </div>
+          <div style={{ display:"flex", justifyContent:"space-between", fontSize:9, color:C.textMuted }}><span>1年</span>{breakEvenMonths&&breakEvenMonths<=maxHold&&<span style={{ color:C.arm }}>↑回本{breakEvenYears}年</span>}<span>{newTerm}年</span></div>
+        </div>
+      </div>
+
+      {/* Results */}
+      <div style={{ padding:"8px 16px 0", display:"flex", gap:7 }}>
+        <StatCard label={isEn?"Monthly Saving":"月供节省"} labelEn="Monthly Saving" value={fmtD(monthlySaving)} color={monthlySaving>0?C.arm:C.danger} highlight={monthlySaving>0?C.armLight:C.dangerLight} />
+        <StatCard label={isEn?"Break-Even":"回本时间"} labelEn="Break-Even" value={breakEvenYears?breakEvenYears+"年":"—"} color={C.purple} />
+        <StatCard label={`${isEn?(netSavings>=0?"Net Save":"Net Loss"):(netSavings>=0?"净省":"净亏")}(${holdLabel})`} labelEn="Net Savings" value={fmtD(Math.abs(netSavings))} color={netSavings>=0?C.arm:C.danger} highlight={netSavings>=0?C.armLight:C.dangerLight} />
+      </div>
+
+      {/* Cost breakdown bar */}
+      <div style={{ padding:"8px 16px 0" }}>
+        <div style={{ background:C.card, border:`1px solid ${C.borderLight}`, borderRadius:18, padding:18, boxShadow:C.shadow }}>
+          <div style={{ fontSize:13, fontWeight:700, marginBottom:12 }}>{isEn?"Total Interest ":"总利息对比 "}<span style={{ fontSize:10, color:C.textMuted, fontWeight:400 }}>Total Interest (Full Term)</span></div>
+          <div style={{ display:"flex", gap:14 }}>
+            {[{l:"现有贷款",v:curTotalInt,c:C.danger},{l:isEn?"New+Costs":"新贷款+费用",v:newTotalInt+totalClosing,c:C.arm}].map(x=>{const mx=Math.max(curTotalInt,newTotalInt+totalClosing);return(
+              <div key={x.l} style={{ flex:1 }}><div style={{ fontSize:11, color:x.c, fontWeight:600, marginBottom:6 }}>{x.l}</div>
+              <div style={{ height:10, background:C.cardAlt, borderRadius:5, overflow:"hidden" }}><div style={{ height:"100%", borderRadius:5, background:x.c, width:`${(x.v/mx)*100}%` }}/></div>
+              <div style={{ fontSize:14, fontWeight:700, color:x.c, fontFamily:MONO, marginTop:4 }}>{fmtD(x.v)}</div></div>
+            );})}
+          </div>
+        </div>
+      </div>
+
+      {/* Insight */}
+      <div style={{ padding:"8px 16px 0" }}>
+        <div style={{ background:insight.bg, border:`1px solid ${insight.color}18`, borderRadius:18, padding:"16px 18px" }}>
+          <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
+            <span style={{ fontSize:22 }}>{insight.icon}</span>
+            <div><div style={{ fontSize:15, fontWeight:700, color:insight.color }}>{insight.title}</div><div style={{ fontSize:9, color:C.textMuted }}>DECISION INSIGHT</div></div>
+          </div>
+          <div style={{ fontSize:13, color:C.textSec, lineHeight:1.7 }}>{insight.desc}</div>
+        </div>
+      </div>
+
+      <div style={{ padding:"8px 16px 0" }}><GlossarySection terms={REFI_GLOSSARY} en={isEn} /></div>
+      <BrandingFooter />
+    </div>
+  );
+}
+
+/* 
+   APP SHELL
+    */
+/* ═══════════════════════════════════════════════════
+   TOOL 4: 1031 EXCHANGE ANALYZER
+   ═══════════════════════════════════════════════════ */
+const EXCHANGE_GLOSSARY = [
+  { term:"1031 Exchange", cn:"1031延税交换", desc:"通过同类资产交换延迟缴纳资本利得税。只适用于投资/商业物业，不适用于自住房。", descEn:"Defer capital gains tax by exchanging investment properties. Only for investment/business property, not primary residence." },
+  { term:"Boot", cn:"补差/现金收入", desc:"交换中收到的非同类财产（如现金），必须缴税。要全额延税必须再投资全部收益。", descEn:"Non-like-kind property received (e.g. cash). Boot is taxable. To fully defer, reinvest all proceeds." },
+  { term:"Depreciation Recapture", cn:"折旧回收税", desc:"之前抵扣的折旧在出售时按25%税率征收。住宅物业按27.5年折旧，商业按39年。", descEn:"Previously deducted depreciation taxed at 25% upon sale. Residential: 27.5yr, Commercial: 39yr." },
+  { term:"QI", cn:"合格中间人", desc:"持有交换资金的第三方。卖方不能直接接触资金，否则不符合1031条件。", descEn:"Qualified Intermediary holds exchange funds. Seller cannot touch proceeds or exchange is disqualified." },
+];
+
+const STATE_CG_RATES = {
+  "AL":{label:"Alabama",rate:0.050},"AK":{label:"Alaska",rate:0},"AZ":{label:"Arizona",rate:0.025},
+  "AR":{label:"Arkansas",rate:0.044},"CA":{label:"California",rate:0.133},"CO":{label:"Colorado",rate:0.044},
+  "CT":{label:"Connecticut",rate:0.0699},"DE":{label:"Delaware",rate:0.066},"FL":{label:"Florida",rate:0},
+  "GA":{label:"Georgia",rate:0.0549},"HI":{label:"Hawaii",rate:0.11},"ID":{label:"Idaho",rate:0.058},
+  "IL":{label:"Illinois",rate:0.0495},"IN":{label:"Indiana",rate:0.0305},"IA":{label:"Iowa",rate:0.057},
+  "KS":{label:"Kansas",rate:0.057},"KY":{label:"Kentucky",rate:0.04},"LA":{label:"Louisiana",rate:0.0425},
+  "ME":{label:"Maine",rate:0.0715},"MD":{label:"Maryland",rate:0.0575},"MA":{label:"Massachusetts",rate:0.09},
+  "MI":{label:"Michigan",rate:0.0425},"MN":{label:"Minnesota",rate:0.0985},"MS":{label:"Mississippi",rate:0.05},
+  "MO":{label:"Missouri",rate:0.0495},"MT":{label:"Montana",rate:0.0675},"NE":{label:"Nebraska",rate:0.0664},
+  "NV":{label:"Nevada",rate:0},"NH":{label:"New Hampshire",rate:0},"NJ":{label:"New Jersey",rate:0.1075},
+  "NM":{label:"New Mexico",rate:0.059},"NY":{label:"New York",rate:0.0882},"NC":{label:"North Carolina",rate:0.045},
+  "ND":{label:"North Dakota",rate:0.025},"OH":{label:"Ohio",rate:0.035},"OK":{label:"Oklahoma",rate:0.0475},
+  "OR":{label:"Oregon",rate:0.099},"PA":{label:"Pennsylvania",rate:0.0307},"RI":{label:"Rhode Island",rate:0.0599},
+  "SC":{label:"South Carolina",rate:0.064},"SD":{label:"South Dakota",rate:0},"TN":{label:"Tennessee",rate:0},
+  "TX":{label:"Texas",rate:0},"UT":{label:"Utah",rate:0.0465},"VT":{label:"Vermont",rate:0.0875},
+  "VA":{label:"Virginia",rate:0.0575},"WA":{label:"Washington",rate:0.07},"WV":{label:"West Virginia",rate:0.0512},
+  "WI":{label:"Wisconsin",rate:0.0765},"WY":{label:"Wyoming",rate:0},"DC":{label:"Washington DC",rate:0.1075},
+};
+
+function ExchangeAnalyzer({ onBack, lang }) {
+  const isEn = lang === "en";
+  const [purchasePrice, setPurchasePrice] = React.useState(400000);
+  const [improvements, setImprovements] = React.useState(50000);
+  const [sellingPrice, setSellingPrice] = React.useState(650000);
+  const [sellingCosts, setSellingCosts] = React.useState(6);
+  const [buyYear, setBuyYear] = React.useState(2018);
+  const [buyMonth, setBuyMonth] = React.useState(6);
+  const [sellYear, setSellYear] = React.useState(2026);
+  const [sellMonth, setSellMonth] = React.useState(6);
+  const [propType, setPropType] = React.useState("residential");
+  const [propState, setPropState] = React.useState("NV");
+  const [resState, setResState] = React.useState("NY");
+  const [taxableIncome, setTaxableIncome] = React.useState(500000);
+  const [filingStatus, setFilingStatus] = React.useState("mfj");
+  const [showReport, setShowReport] = React.useState(false);
+  const [reportLang, setReportLang] = React.useState(lang);
+  const [showTimeline, setShowTimeline] = React.useState(false);
+  const [showDepDetail, setShowDepDetail] = React.useState(false);
+
+  // Mid-month convention depreciation (MACRS)
+  const depLife = propType === "residential" ? 27.5 : 39;
+  const depBasis = (purchasePrice + improvements) * 0.85; // land ~15%
+  const annualDep = depBasis / depLife;
+
+  // Calculate months held
+  const totalMonthsHeld = (sellYear - buyYear) * 12 + (sellMonth - buyMonth);
+  const yearsHeld = totalMonthsHeld > 0 ? +(totalMonthsHeld / 12).toFixed(1) : 0;
+
+  // Mid-month convention: first year partial, last year partial
+  const calcDep = React.useMemo(() => {
+    if (totalMonthsHeld <= 0) return { total: 0, years: [] };
+    const yrs = [];
+    let cumDep = 0;
+    const startY = buyYear;
+    const endY = sellYear;
+    for (let y = startY; y <= endY; y++) {
+      let months = 12;
+      if (y === startY) months = 12 - buyMonth + 0.5; // mid-month start
+      if (y === endY) months = sellMonth - 0.5; // mid-month end
+      if (y === startY && y === endY) months = totalMonthsHeld > 0 ? Math.max(0.5, sellMonth - buyMonth) : 0;
+      const yrDep = Math.min(annualDep * months / 12, depBasis - cumDep);
+      if (yrDep > 0) {
+        cumDep += yrDep;
+        yrs.push({ year: y, months: +months.toFixed(1), dep: Math.round(yrDep), cumDep: Math.round(cumDep) });
+      }
+      if (cumDep >= depBasis) break;
+    }
+    return { total: Math.round(cumDep), years: yrs };
+  }, [buyYear, buyMonth, sellYear, sellMonth, annualDep, depBasis, totalMonthsHeld]);
+
+  const totalDep = calcDep.total;
+  const adjustedBasis = purchasePrice + improvements - totalDep;
+  const sellCostDollar = Math.round(sellingPrice * sellingCosts / 100);
+  const netSalePrice = sellingPrice - sellCostDollar;
+  const totalGain = Math.max(0, netSalePrice - adjustedBasis);
+  const depRecapture = Math.min(totalDep, totalGain);
+  const capitalGain = Math.max(0, totalGain - depRecapture);
+
+  // Federal CG rate based on taxable income + filing status (2025 brackets)
+  const fedCGRate = React.useMemo(() => {
+    const inc = taxableIncome + capitalGain;
+    if (filingStatus === "single") {
+      if (inc <= 48350) return 0;
+      if (inc <= 533400) return 0.15;
+      return 0.20;
+    } else { // MFJ
+      if (inc <= 96700) return 0;
+      if (inc <= 600050) return 0.15;
+      return 0.20;
+    }
+  }, [taxableIncome, capitalGain, filingStatus]);
+
+  // NIIT: 3.8% if MAGI > $200K single / $250K MFJ
+  const niitThreshold = filingStatus === "single" ? 200000 : 250000;
+  const niitApplies = (taxableIncome + totalGain) > niitThreshold;
+  const niitRate = niitApplies ? 0.038 : 0;
+  const propStateRate = STATE_CG_RATES[propState]?.rate || 0;
+  const resStateRate = STATE_CG_RATES[resState]?.rate || 0;
+  const stateRate = Math.max(propStateRate, resStateRate);
+  const taxingState = resStateRate >= propStateRate ? resState : propState;
+
+  const fedCGTax = Math.round(capitalGain * fedCGRate);
+  const depRecapTax = Math.round(depRecapture * 0.25);
+  const niitTax = Math.round(totalGain * niitRate);
+  const stateTax = Math.round(totalGain * stateRate);
+  const totalTax = fedCGTax + depRecapTax + niitTax + stateTax;
+  const effectiveRate = totalGain > 0 ? (totalTax / totalGain * 100).toFixed(1) : "0";
+  const minReplacementPrice = netSalePrice;
+
+  const propInfo = STATE_CG_RATES[propState] || {label:propState};
+  const resInfo = STATE_CG_RATES[resState] || {label:resState};
+  const taxingInfo = STATE_CG_RATES[taxingState] || {label:taxingState};
+
+  if (showReport) {
+    const r = reportLang === "en";
+    const genText = () => {
+      const L = [];
+      L.push(r ? "1031 EXCHANGE ANALYSIS" : "1031延税交换分析");
+      L.push("");
+      L.push(r ? `Purchase: ${fmtD(purchasePrice)} (${buyYear}/${buyMonth}) | Improvements: ${fmtD(improvements)} | Held: ${yearsHeld}yr (${totalMonthsHeld}mo)` : `购入价：${fmtD(purchasePrice)}（${buyYear}年${buyMonth}月）| 改造：${fmtD(improvements)} | 持有：${yearsHeld}年（${totalMonthsHeld}月）`);
+      L.push(r ? `Selling: ${fmtD(sellingPrice)} | Costs: ${sellingCosts}% (${fmtD(sellCostDollar)}) | Net: ${fmtD(netSalePrice)}` : `售价：${fmtD(sellingPrice)} | 费用：${sellingCosts}%（${fmtD(sellCostDollar)}）| 净价：${fmtD(netSalePrice)}`);
+      L.push(r ? `Type: ${propType} | State: ${propInfo.label} | Res: ${resInfo.label} | Dep: ${fmtD(totalDep)} (${depLife}yr mid-month) | Basis: ${fmtD(adjustedBasis)}` : `类型：${propType === "residential" ? "住宅" : "商业"} | 物业州：${propInfo.label} | 居住州：${resInfo.label} | 折旧：${fmtD(totalDep)}（${depLife}年mid-month）| 基础：${fmtD(adjustedBasis)}`);
+      L.push("");
+      L.push(r ? "TAX WITHOUT 1031:" : "不做1031需缴税：");
+      L.push(r ? `  Adjusted Basis: ${fmtD(adjustedBasis)}` : `  调整后成本基础：${fmtD(adjustedBasis)}`);
+      L.push(r ? `  Total Gain: ${fmtD(totalGain)}` : `  总收益：${fmtD(totalGain)}`);
+      L.push(r ? `  Capital Gains: ${fmtD(capitalGain)} x ${(fedCGRate*100)}% = ${fmtD(fedCGTax)} (${filingStatus==="mfj"?"MFJ":"Single"}, income ${fmtD(taxableIncome)})` : `  资本利得：${fmtD(capitalGain)} x ${(fedCGRate*100)}% = ${fmtD(fedCGTax)}（${filingStatus==="mfj"?"合报":"单身"}，收入${fmtD(taxableIncome)}）`);
+      L.push(r ? `  Dep Recapture: ${fmtD(depRecapture)} x 25% = ${fmtD(depRecapTax)}` : `  折旧回收：${fmtD(depRecapture)} x 25% = ${fmtD(depRecapTax)}`);
+      if (niitTax > 0) L.push(r ? `  NIIT: ${fmtD(totalGain)} x 3.8% = ${fmtD(niitTax)}` : `  NIIT净投资税：${fmtD(totalGain)} x 3.8% = ${fmtD(niitTax)}`);
+      L.push(r ? `  State Tax (${taxingInfo.label} ${(stateRate*100).toFixed(1)}%): ${fmtD(totalGain)} x ${(stateRate*100).toFixed(1)}% = ${fmtD(stateTax)}${propStateRate !== resStateRate ? ` [Prop: ${propInfo.label} ${(propStateRate*100).toFixed(1)}%, Res: ${resInfo.label} ${(resStateRate*100).toFixed(1)}%]` : ""}` : `  州税（${taxingInfo.label} ${(stateRate*100).toFixed(1)}%）：${fmtD(totalGain)} x ${(stateRate*100).toFixed(1)}% = ${fmtD(stateTax)}${propStateRate !== resStateRate ? `（物业${propInfo.label} ${(propStateRate*100).toFixed(1)}%，居住${resInfo.label} ${(resStateRate*100).toFixed(1)}%，取高）` : ""}`);
+      L.push(r ? `  TOTAL TAX: ${fmtD(totalTax)} (effective ${effectiveRate}%)` : `  总税额：${fmtD(totalTax)}（实际税率${effectiveRate}%）`);
+      L.push("");
+      L.push(r ? "WITH 1031 EXCHANGE:" : "做1031交换：");
+      L.push(r ? `  Tax Deferred: ${fmtD(totalTax)}` : `  延税金额：${fmtD(totalTax)}`);
+      L.push(r ? `  Min Replacement Price: ${fmtD(minReplacementPrice)}` : `  替代物业最低价：${fmtD(minReplacementPrice)}`);
+      L.push(r ? `  QI Fee: ~$1,000-$1,500` : `  QI费用：约$1,000-$1,500`);
+      L.push("");
+      L.push(r ? "TIMELINE:" : "时间线：");
+      L.push(r ? "  Day 0: Close sale of relinquished property" : "  第0天：完成旧物业出售");
+      L.push(r ? "  Day 45: Deadline to identify replacement (max 3 properties)" : "  第45天：识别替代物业截止（最多3个）");
+      L.push(r ? "  Day 180: Deadline to close on replacement property" : "  第180天：完成替代物业购买截止");
+      L.push("");
+      L.push(r ? "Disclaimer: For informational purposes only. Consult a CPA." : "声明：仅供参考，请咨询注册会计师。");
+      return L.join("\n");
+    };
+    const txt = genText();
+    return (
+      <div style={{ fontFamily:FONT, background:C.white, minHeight:"100vh", color:C.text, maxWidth:480, margin:"0 auto", padding:"10px 14px" }}>
+        <GlobalStyles />
+        {/* Top bar */}
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+            <LogoSVG size={24} />
+            <div><div style={{ fontSize:14, fontWeight:700 }}>{r?"1031 Exchange":"1031延税交换"}</div><div style={{ fontSize:8, color:C.textMuted }}>Rate Navigator by JMJ · {new Date().toLocaleDateString(r?"en-US":"zh-CN")}</div></div>
+          </div>
+          <div style={{ display:"flex", gap:4 }}>
+            {[{k:"cn",l:"中"},{k:"en",l:"EN"}].map(t => <button key={t.k} onClick={() => setReportLang(t.k)} style={{ padding:"2px 8px", borderRadius:4, border:"none", cursor:"pointer", background:t.k===reportLang?C.warn:"transparent", color:t.k===reportLang?C.white:C.textMuted, fontSize:9, fontWeight:700, fontFamily:FONT }}>{t.l}</button>)}
+            <button onClick={() => setShowReport(false)} style={{ background:"none", border:"none", cursor:"pointer", fontSize:14, color:C.textMuted, padding:"0 4px" }}>{"\u2715"}</button>
+          </div>
+        </div>
+        <div style={{ height:1.5, background:"linear-gradient(90deg,"+C.warn+","+C.arm+")", borderRadius:1, marginBottom:8 }} />
+
+        {/* Property: buy → sell on one row */}
+        <div style={{ display:"flex", gap:6, marginBottom:6, alignItems:"center" }}>
+          <div style={{ flex:1, padding:"6px", background:C.warnLight, borderRadius:8, textAlign:"center" }}>
+            <div style={{ fontSize:7, color:C.warn, fontWeight:600 }}>{r?"BUY":"购入"} {buyMonth}/{buyYear}</div>
+            <div style={{ fontSize:13, fontWeight:700, fontFamily:MONO, color:C.warn }}>{fmtD(purchasePrice)}</div>
+          </div>
+          <div style={{ fontSize:12, color:C.textMuted }}>{"\u2192"}</div>
+          <div style={{ flex:1, padding:"6px", background:C.armLight, borderRadius:8, textAlign:"center" }}>
+            <div style={{ fontSize:7, color:C.arm, fontWeight:600 }}>{r?"SELL":"出售"} {sellMonth}/{sellYear}</div>
+            <div style={{ fontSize:13, fontWeight:700, fontFamily:MONO, color:C.arm }}>{fmtD(sellingPrice)}</div>
+          </div>
+          <div style={{ flex:0.6, padding:"6px", background:C.cardAlt, borderRadius:8, textAlign:"center" }}>
+            <div style={{ fontSize:7, color:C.textDim, fontWeight:600 }}>{r?"GAIN":"收益"}</div>
+            <div style={{ fontSize:13, fontWeight:700, fontFamily:MONO, color:C.text }}>{fmtD(totalGain)}</div>
+          </div>
+        </div>
+        <div style={{ display:"flex", gap:3, marginBottom:8, fontSize:8, color:C.textDim, justifyContent:"center", flexWrap:"wrap" }}>
+          {[(r?"Held ":"持有")+yearsHeld+(r?"yr":"年"), propType==="residential"?(r?"Res":"住宅"):(r?"Com":"商业"), propInfo.label+"/"+resInfo.label, (r?"Imp ":"改造")+fmtD(improvements), (r?"Cost ":"费用")+sellingCosts+"%", (r?"Dep ":"折旧")+fmtD(totalDep)].map((s,i) => <span key={i} style={{ padding:"1px 4px", background:C.cardAlt, borderRadius:3 }}>{s}</span>)}
+        </div>
+
+        {/* Big comparison */}
+        <div style={{ display:"flex", gap:6, marginBottom:8 }}>
+          <div style={{ flex:1, padding:"8px 6px", background:"#FFF0F0", borderRadius:10, textAlign:"center", border:"1px solid "+C.danger+"18" }}>
+            <div style={{ fontSize:8, color:C.danger, fontWeight:700 }}>{r?"WITHOUT 1031":"不做1031"}</div>
+            <div style={{ fontSize:20, fontWeight:700, fontFamily:MONO, color:C.danger, margin:"2px 0" }}>{fmtD(totalTax)}</div>
+            <div style={{ fontSize:8, color:C.textMuted }}>{effectiveRate}% {r?"effective":"实际税率"}</div>
+          </div>
+          <div style={{ flex:1, padding:"8px 6px", background:"#F0FFF5", borderRadius:10, textAlign:"center", border:"1px solid "+C.arm+"18" }}>
+            <div style={{ fontSize:8, color:C.arm, fontWeight:700 }}>{r?"WITH 1031":"做1031"}</div>
+            <div style={{ fontSize:20, fontWeight:700, fontFamily:MONO, color:C.arm, margin:"2px 0" }}>$0</div>
+            <div style={{ fontSize:8, color:C.textMuted }}>{r?"deferred":"全额延税"}</div>
+          </div>
+        </div>
+
+        {/* Combined: Cost Basis + Tax in one compact table */}
+        <div style={{ background:C.cardAlt, borderRadius:10, padding:"8px 10px", marginBottom:8, fontSize:10 }}>
+          {[
+            {l:r?"Cost Basis":"成本基础", items:[
+              {k:r?"Purchase":"购入", v:fmtD(purchasePrice)},
+              {k:r?"+ Improve":"+ 改造", v:fmtD(improvements)},
+              {k:r?"- Depreciation ("+depLife+"yr)":"- 折旧("+depLife+"年)", v:"-"+fmtD(totalDep), c:C.danger},
+              {k:r?"= Adj Basis":"= 调整后基础", v:fmtD(adjustedBasis), c:C.arm, bold:true},
+            ]},
+            {l:r?"Tax Detail":"税额明细", items:[
+              {k:r?`Fed CG ${(fedCGRate*100)}%`:`联邦CG ${(fedCGRate*100)}%`, v:fmtD(fedCGTax), c:C.danger},
+              {k:r?"Dep Recap 25%":"折旧回收25%", v:fmtD(depRecapTax), c:C.danger},
+              ...(niitTax>0?[{k:"NIIT 3.8%", v:fmtD(niitTax), c:C.danger}]:[]),
+              {k:taxingInfo.label+" "+(stateRate*100).toFixed(1)+"%", v:fmtD(stateTax), c:C.danger},
+              {k:r?"TOTAL":"总计", v:fmtD(totalTax), c:C.danger, bold:true},
+            ]},
+          ].map((sec,si) => <div key={si} style={{ marginBottom:si===0?6:0 }}>
+            <div style={{ fontSize:9, fontWeight:700, color:C.textDim, marginBottom:3 }}>{sec.l}</div>
+            {sec.items.map((item,i) => <div key={i} style={{ display:"flex", justifyContent:"space-between", padding:"2px 0", borderBottom:item.bold?"none":"1px solid "+C.borderLight }}>
+              <span style={{ color:C.textSec }}>{item.k}</span>
+              <span style={{ fontFamily:MONO, fontWeight:item.bold?700:600, color:item.c||C.text }}>{item.v}</span>
+            </div>)}
+          </div>)}
+        </div>
+
+        {/* 1031 Requirements - compact */}
+        <div style={{ background:C.warnLight, borderRadius:10, padding:"8px 10px", marginBottom:8, fontSize:10 }}>
+          <div style={{ fontSize:9, fontWeight:700, color:C.warn, marginBottom:4 }}>{r?"1031 REQUIREMENTS":"1031交换要求"}</div>
+          <div style={{ display:"flex", justifyContent:"space-between", padding:"2px 0" }}><span style={{ color:C.textSec }}>{r?"Min Replacement":"替代物业最低"}</span><span style={{ fontFamily:MONO, fontWeight:700, color:C.warn }}>{fmtD(minReplacementPrice)}</span></div>
+          <div style={{ display:"flex", justifyContent:"space-between", padding:"2px 0" }}><span style={{ color:C.textSec }}>{r?"Identify by Day 45":"第45天识别(最多3个)"}</span><span style={{ fontFamily:MONO, fontWeight:700, color:C.warn }}>{r?"max 3":"3个"}</span></div>
+          <div style={{ display:"flex", justifyContent:"space-between", padding:"2px 0" }}><span style={{ color:C.textSec }}>{r?"Close by Day 180":"第180天完成购买"}</span><span style={{ fontFamily:MONO, fontWeight:700, color:C.warn }}>{r?"no ext.":"不可延"}</span></div>
+          <div style={{ display:"flex", justifyContent:"space-between", padding:"2px 0" }}><span style={{ color:C.textSec }}>{r?"QI Fee":"QI费用"}</span><span style={{ fontFamily:MONO, fontWeight:700, color:C.warn }}>~$1,000</span></div>
+        </div>
+
+        {/* Copy */}
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+          <span style={{ fontSize:8, color:C.textMuted }}>Product by JMJ · {r?"For info only":"仅供参考"}</span>
+          <button onClick={() => navigator.clipboard && navigator.clipboard.writeText(txt)} style={{ padding:"3px 10px", borderRadius:6, border:"1px solid "+C.warn, cursor:"pointer", background:C.warnLight, color:C.warn, fontSize:9, fontWeight:600, fontFamily:FONT }}>{r?"Copy Report":"复制报告"}</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ fontFamily:FONT, background:C.bg, minHeight:"100vh", color:C.text, maxWidth:480, margin:"0 auto", paddingTop:56, paddingBottom:32 }}>
+      <GlobalStyles />
+      <div style={{ position:"fixed", top:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, zIndex:100, background:"transparent", borderBottom:"none", boxShadow:"none" }}>
+        <div style={{ padding:"10px 16px", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+          <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+            <button onClick={onBack} style={{ background:"none", border:"none", cursor:"pointer", fontSize:20, color:C.textDim }}>&#8249;</button>
+            <LogoSVG size={28} />
+            <div>
+              <div style={{ fontSize:14, fontWeight:700 }}>{isEn ? "1031 Exchange" : "1031延税交换"}</div>
+              <div style={{ fontSize:9, color:C.textMuted }}>TAX-DEFERRED EXCHANGE by JMJ</div>
+            </div>
+          </div>
+          <div style={{ display:"flex", gap:3 }}>
+            <button onClick={() => setShowReport(true)} style={{ background:C.arm, border:"none", borderRadius:8, padding:"5px 10px", cursor:"pointer", fontSize:11, color:C.white, fontFamily:FONT, fontWeight:600 }}>{isEn?"\u{1F4CB} Report":"\u{1F4CB} 生成报告"}</button>
+            <button onClick={() => { setPurchasePrice(400000); setImprovements(50000); setSellingPrice(650000); setSellingCosts(6); setBuyYear(2018); setBuyMonth(6); setSellYear(2026); setSellMonth(6); }} style={{ background:C.cardAlt, border:"1px solid "+C.border, borderRadius:8, padding:"5px 10px", cursor:"pointer", fontSize:11, color:C.textSec, fontFamily:FONT, fontWeight:600 }}>{isEn?"\u{1F504} Reset":"\u{1F504} 重新模拟"}</button>
+          </div>
+        </div>
+      </div>
+
+      {/* Property Info */}
+      <div style={{ padding:"10px 16px 0" }}>
+        <div style={{ background:C.card, border:"1px solid "+C.borderLight, borderRadius:18, padding:20, boxShadow:C.shadow }}>
+          <div style={{ fontSize:14, fontWeight:700, color:C.warn, marginBottom:14 }}>{isEn ? "\u{1F3E0} Relinquished Property" : "\u{1F3E0} \u51FA\u552E\u7269\u4E1A"}</div>
+          <div style={{ display:"flex", gap:6, marginBottom:12, background:C.cardAlt, borderRadius:10, padding:3 }}>
+            {[{k:"residential",l:isEn?"Residential":"住宅"},{k:"commercial",l:isEn?"Commercial":"商业"}].map(t => {
+              const a = t.k === propType;
+              return <button key={t.k} onClick={() => setPropType(t.k)} style={{ flex:1, padding:"6px 2px", borderRadius:8, border:"none", cursor:"pointer", background:a?C.white:"transparent", boxShadow:a?C.shadow:"none", fontFamily:FONT, fontSize:11, fontWeight:a?700:500, color:a?C.warn:C.textDim }}>{t.l}</button>;
+            })}
+          </div>
+          <AmountSlider label={isEn?"Purchase Price":"购入价格"} value={purchasePrice} onChange={setPurchasePrice} min={50000} max={5000000} step={25000} color={C.warn} />
+          <AmountSlider label={isEn?"Improvements":"改造/装修投入"} value={improvements} onChange={setImprovements} min={0} max={500000} step={5000} color={C.warn} />
+          <div style={{ display:"flex", gap:8, marginBottom:6 }}>
+            <div style={{ flex:1 }}>
+              <div style={{ fontSize:11, color:C.textSec, fontWeight:600, marginBottom:4 }}>{isEn?"Purchased":"购入"}</div>
+              <div style={{ display:"flex", gap:3 }}>
+                <select value={buyMonth} onChange={e => setBuyMonth(Number(e.target.value))} style={{ flex:1, padding:"6px 2px", borderRadius:6, border:"1px solid "+C.border, fontSize:11, fontFamily:FONT, outline:"none", background:C.white }}>
+                  {[1,2,3,4,5,6,7,8,9,10,11,12].map(m => <option key={m} value={m}>{m}{isEn?"":"月"}</option>)}
+                </select>
+                <select value={buyYear} onChange={e => setBuyYear(Number(e.target.value))} style={{ flex:1.3, padding:"6px 2px", borderRadius:6, border:"1px solid "+C.border, fontSize:11, fontFamily:MONO, fontWeight:700, outline:"none", background:C.white }}>
+                  {Array.from({length:41},(_,i)=>1990+i).map(y => <option key={y} value={y}>{y}</option>)}
+                </select>
+              </div>
+            </div>
+            <div style={{ display:"flex", alignItems:"flex-end", paddingBottom:4, fontSize:14, color:C.textMuted }}>{"\u2192"}</div>
+            <div style={{ flex:1 }}>
+              <div style={{ fontSize:11, color:C.textSec, fontWeight:600, marginBottom:4 }}>{isEn?"Sold":"出售"}</div>
+              <div style={{ display:"flex", gap:3 }}>
+                <select value={sellMonth} onChange={e => setSellMonth(Number(e.target.value))} style={{ flex:1, padding:"6px 2px", borderRadius:6, border:"1px solid "+C.border, fontSize:11, fontFamily:FONT, outline:"none", background:C.white }}>
+                  {[1,2,3,4,5,6,7,8,9,10,11,12].map(m => <option key={m} value={m}>{m}{isEn?"":"月"}</option>)}
+                </select>
+                <select value={sellYear} onChange={e => setSellYear(Number(e.target.value))} style={{ flex:1.3, padding:"6px 2px", borderRadius:6, border:"1px solid "+C.border, fontSize:11, fontFamily:MONO, fontWeight:700, outline:"none", background:C.white }}>
+                  {Array.from({length:21},(_,i)=>2020+i).map(y => <option key={y} value={y}>{y}</option>)}
+                </select>
+              </div>
+            </div>
+          </div>
+          <div style={{ padding:"5px 10px", background:C.warnLight, borderRadius:8, fontSize:10, color:C.warn, fontWeight:600, textAlign:"center", marginBottom:4 }}>{isEn?"Held":"持有"} {yearsHeld}{isEn?"yr":"年"} ({totalMonthsHeld}{isEn?"mo":"月"}) · {propType==="residential"?"27.5":"39"}{isEn?"yr mid-month dep":"年mid-month折旧"}</div>
+          <div style={{ fontSize:13, fontWeight:700, color:C.arm, marginTop:16, marginBottom:10 }}>{isEn ? "\u{1F4B5} Sale" : "\u{1F4B5} \u51FA\u552E"}</div>
+          <AmountSlider label={isEn?"Selling Price":"售出价格"} value={sellingPrice} onChange={setSellingPrice} min={100000} max={5000000} step={25000} color={C.arm} />
+          <div style={{ marginBottom:12 }}>
+            <div style={{ display:"flex", justifyContent:"space-between", marginBottom:6 }}>
+              <span style={{ fontSize:12, color:C.textSec, fontWeight:600 }}>{isEn?"Selling Costs":"出售费用"} <span style={{ fontSize:10, color:C.textMuted }}>(agent+closing)</span></span>
+              <span style={{ fontSize:14, fontWeight:700, fontFamily:MONO, color:C.arm }}>{sellingCosts}% = {fmtD(sellCostDollar)}</span>
+            </div>
+            <input type="range" min={0} max={10} step={0.5} value={sellingCosts} onChange={e => setSellingCosts(Number(e.target.value))}
+              style={{ width:"100%", height:5, borderRadius:3, outline:"none", appearance:"none", WebkitAppearance:"none", cursor:"pointer", background:`linear-gradient(to right,${C.arm} 0%,${C.arm} ${(sellingCosts/10)*100}%,${C.border} ${(sellingCosts/10)*100}%,${C.border} 100%)` }} />
+          </div>
+          <div style={{ display:"flex", gap:6, marginBottom:6 }}>
+            <div style={{ flex:1 }}>
+              <div style={{ fontSize:10, color:C.textDim, marginBottom:3 }}>{isEn?"Property State":"物业所在州"}</div>
+              <select value={propState} onChange={e => setPropState(e.target.value)} style={{ width:"100%", padding:"7px 4px", borderRadius:8, border:"1px solid "+C.border, fontSize:11, fontFamily:FONT, color:C.text, background:C.white, outline:"none" }}>
+                {Object.entries(STATE_CG_RATES).map(([k,v]) => <option key={k} value={k}>{k} ({(v.rate*100).toFixed(1)}%)</option>)}
+              </select>
+            </div>
+            <div style={{ flex:1 }}>
+              <div style={{ fontSize:10, color:C.textDim, marginBottom:3 }}>{isEn?"Resident State":"居住州"}</div>
+              <select value={resState} onChange={e => setResState(e.target.value)} style={{ width:"100%", padding:"7px 4px", borderRadius:8, border:"1px solid "+C.border, fontSize:11, fontFamily:FONT, color:C.text, background:C.white, outline:"none" }}>
+                {Object.entries(STATE_CG_RATES).map(([k,v]) => <option key={k} value={k}>{k} ({(v.rate*100).toFixed(1)}%)</option>)}
+              </select>
+            </div>
+          </div>
+          {propStateRate !== resStateRate && <div style={{ padding:"4px 8px", background:C.warnLight, borderRadius:6, fontSize:9, color:C.warn, fontWeight:600, marginBottom:6, textAlign:"center" }}>{isEn?`Tax uses higher rate: ${taxingInfo.label} ${(stateRate*100).toFixed(1)}%`:`取较高税率：${taxingInfo.label} ${(stateRate*100).toFixed(1)}%`}</div>}
+          <div style={{ display:"flex", gap:6, marginBottom:10 }}>
+            <div style={{ flex:1 }}>
+              <div style={{ fontSize:10, color:C.textDim, marginBottom:3 }}>{isEn?"Filing Status":"报税身份"}</div>
+              <select value={filingStatus} onChange={e => setFilingStatus(e.target.value)} style={{ width:"100%", padding:"7px 4px", borderRadius:8, border:"1px solid "+C.border, fontSize:11, fontFamily:FONT, color:C.text, background:C.white, outline:"none" }}>
+                <option value="mfj">{isEn?"Married Filing Jointly":"已婚合报 MFJ"}</option>
+                <option value="single">{isEn?"Single/HOH":"单身/户主"}</option>
+              </select>
+            </div>
+          </div>
+          <div style={{ marginBottom:10 }}>
+            <div style={{ display:"flex", justifyContent:"space-between", marginBottom:6 }}>
+              <span style={{ fontSize:11, color:C.textDim }}>{isEn?"Taxable Income (excl. gain)":"应税收入（不含本次收益）"}</span>
+              <span style={{ fontSize:12, fontWeight:700, fontFamily:MONO }}>{fmtD(taxableIncome)}</span>
+            </div>
+            <input type="range" min={50000} max={1500000} step={25000} value={taxableIncome} onChange={e => setTaxableIncome(Number(e.target.value))}
+              style={{ width:"100%", height:5, borderRadius:3, outline:"none", appearance:"none", WebkitAppearance:"none", cursor:"pointer", background:`linear-gradient(to right,${C.textDim} 0%,${C.textDim} ${((taxableIncome-50000)/1450000)*100}%,${C.border} ${((taxableIncome-50000)/1450000)*100}%,${C.border} 100%)` }} />
+            <div style={{ display:"flex", justifyContent:"space-between", fontSize:9, color:C.textMuted, marginTop:2 }}><span>{isEn?"CG Rate":"CG税率"}: {(fedCGRate*100)}%</span><span>NIIT: {niitApplies ? "3.8%" : (isEn?"N/A":"不适用")}</span></div>
+          </div>
+        </div>
+      </div>
+
+      {/* Tax Comparison */}
+      <div style={{ padding:"8px 16px 0" }}>
+        <div style={{ background:C.card, border:"1px solid "+C.borderLight, borderRadius:18, padding:18, boxShadow:C.shadow }}>
+          <div style={{ fontSize:13, fontWeight:700, marginBottom:12 }}>{isEn ? "\u{1F4CA} Tax Comparison" : "\u{1F4CA} \u7A0E\u8D1F\u5BF9\u6BD4"}</div>
+          <div style={{ display:"flex", gap:12, marginBottom:14 }}>
+            <div style={{ flex:1, padding:14, background:C.dangerLight, borderRadius:14, textAlign:"center" }}>
+              <div style={{ fontSize:11, color:C.danger, fontWeight:600 }}>{isEn?"Without 1031":"不做1031"}</div>
+              <div style={{ fontSize:22, fontWeight:700, fontFamily:MONO, color:C.danger, marginTop:4 }}>{fmtD(totalTax)}</div>
+              <div style={{ fontSize:10, color:C.textDim, marginTop:2 }}>{isEn?"tax owed":"应缴税额"}</div>
+            </div>
+            <div style={{ flex:1, padding:14, background:C.armLight, borderRadius:14, textAlign:"center" }}>
+              <div style={{ fontSize:11, color:C.arm, fontWeight:600 }}>{isEn?"With 1031":"做1031"}</div>
+              <div style={{ fontSize:22, fontWeight:700, fontFamily:MONO, color:C.arm, marginTop:4 }}>$0</div>
+              <div style={{ fontSize:10, color:C.textDim, marginTop:2 }}>{isEn?"all deferred":"全额延税"}</div>
+            </div>
+          </div>
+          {/* Tax Breakdown */}
+          <div style={{ padding:12, background:C.cardAlt, borderRadius:12, marginBottom:10 }}>
+            <div style={{ fontSize:11, fontWeight:700, marginBottom:8 }}>{isEn?"Tax Breakdown":"税额明细"}</div>
+            {[
+              {l:isEn?"Adjusted Basis":"调整后成本基础", v:fmtD(adjustedBasis), c:C.textSec, note:isEn?`Purchase ${fmtD(purchasePrice)} + Improve ${fmtD(improvements)} - Dep ${fmtD(totalDep)}`:`购入${fmtD(purchasePrice)} + 改造${fmtD(improvements)} - 折旧${fmtD(totalDep)}`},
+              {l:isEn?"Total Gain":"总收益", v:fmtD(totalGain), c:C.warn},
+              {l:`${isEn?"Capital Gains":"资本利得"} (${(fedCGRate*100)}%)`, v:fmtD(fedCGTax), c:C.danger},
+              {l:`${isEn?"Dep Recapture":"折旧回收"} (25%)`, v:fmtD(depRecapTax), c:C.danger},
+              ...(niitTax > 0 ? [{l:"NIIT (3.8%)", v:fmtD(niitTax), c:C.danger}] : []),
+              {l:`${isEn?"State":"州税"} ${taxingInfo.label} (${(stateRate*100).toFixed(1)}%)`, v:fmtD(stateTax), c:C.danger},
+            ].map((r,i) => <div key={i} style={{ display:"flex", justifyContent:"space-between", padding:"4px 0", borderBottom:i<5?"1px solid "+C.borderLight:"none" }}>
+              <span style={{ fontSize:11, color:C.textSec }}>{r.l}</span>
+              <span style={{ fontSize:12, fontWeight:700, fontFamily:MONO, color:r.c }}>{r.v}</span>
+            </div>)}
+            <div style={{ display:"flex", justifyContent:"space-between", padding:"6px 0 0", borderTop:"2px solid "+C.danger, marginTop:4 }}>
+              <span style={{ fontSize:12, fontWeight:700 }}>{isEn?"TOTAL TAX":"总税额"} ({effectiveRate}%)</span>
+              <span style={{ fontSize:14, fontWeight:700, fontFamily:MONO, color:C.danger }}>{fmtD(totalTax)}</span>
+            </div>
+          </div>
+          {/* Cost Basis Detail */}
+          <button onClick={() => setShowDepDetail(!showDepDetail)} style={{ width:"100%", padding:"10px 12px", background:C.cardAlt, borderRadius:12, border:"none", cursor:"pointer", display:"flex", justifyContent:"space-between", alignItems:"center", fontFamily:FONT, marginBottom:10 }}>
+            <span style={{ fontSize:11, fontWeight:700 }}>{isEn?"Cost Basis & Depreciation Detail":"成本基础与折旧明细"}</span>
+            <span style={{ fontSize:14, color:C.textDim, transform:showDepDetail?"rotate(180deg)":"", transition:"transform .2s" }}>{"\u2304"}</span>
+          </button>
+          {showDepDetail && <div style={{ padding:12, background:C.white, borderRadius:12, border:"1px solid "+C.borderLight, marginBottom:10, fontSize:11 }}>
+            <div style={{ marginBottom:8 }}>
+              {[
+                {l:isEn?"Purchase Price":"购入价", v:fmtD(purchasePrice)},
+                {l:isEn?"+ Improvements":"+ 改造", v:fmtD(improvements)},
+                {l:isEn?"= Total Cost":"= 总成本", v:fmtD(purchasePrice+improvements), bold:true},
+                {l:isEn?"Land (15%)":"土地（15%不折旧）", v:fmtD(Math.round((purchasePrice+improvements)*0.15))},
+                {l:isEn?"Depreciable Basis":"可折旧基础（85%）", v:fmtD(Math.round(depBasis)), bold:true},
+                {l:isEn?"Annual Dep":"年折旧额", v:fmtD(Math.round(annualDep)) + " /" + depLife + (isEn?"yr":"年")},
+                {l:isEn?"Total Dep Claimed":"累计已折旧", v:fmtD(totalDep), bold:true, color:C.danger},
+                {l:isEn?"= Adjusted Basis":"= 调整后基础", v:fmtD(adjustedBasis), bold:true, color:C.arm},
+              ].map((r,i) => <div key={i} style={{ display:"flex", justifyContent:"space-between", padding:"3px 0", borderBottom:r.bold?"none":"1px dashed "+C.borderLight }}>
+                <span style={{ color:C.textSec }}>{r.l}</span>
+                <span style={{ fontWeight:r.bold?700:400, fontFamily:MONO, color:r.color||C.text }}>{r.v}</span>
+              </div>)}
+            </div>
+            <div style={{ fontSize:10, fontWeight:700, marginBottom:4, color:C.textDim }}>{isEn?"Depreciation Schedule (Mid-Month)":"折旧明细表（Mid-Month Convention）"}</div>
+            <div style={{ maxHeight:150, overflow:"auto", border:"1px solid "+C.borderLight, borderRadius:8 }}>
+              <table style={{ width:"100%", borderCollapse:"collapse", fontSize:9 }}>
+                <thead><tr style={{ background:C.cardAlt }}>
+                  {(isEn?["Year","Mo","Depreciation","Cumulative"]:["年份","月","折旧额","累计"]).map(h => <th key={h} style={{ padding:"4px 3px", textAlign:"right", fontWeight:600, color:C.textDim, borderBottom:"1px solid "+C.border }}>{h}</th>)}
+                </tr></thead>
+                <tbody>{calcDep.years.map((d,i) => <tr key={i} style={{ background:i%2===0?"transparent":C.cardAlt }}>
+                  <td style={{ padding:"3px", textAlign:"right", fontFamily:MONO }}>{d.year}</td>
+                  <td style={{ padding:"3px", textAlign:"right", fontFamily:MONO }}>{d.months}</td>
+                  <td style={{ padding:"3px", textAlign:"right", fontFamily:MONO }}>{fmtD(d.dep)}</td>
+                  <td style={{ padding:"3px", textAlign:"right", fontFamily:MONO, fontWeight:700 }}>{fmtD(d.cumDep)}</td>
+                </tr>)}</tbody>
+              </table>
+            </div>
+          </div>}
+          <div style={{ padding:"10px 12px", background:C.armLight, borderRadius:12 }}>
+            <div style={{ fontSize:12, fontWeight:700, color:C.arm, marginBottom:4 }}>{isEn ? "\u2705 1031 Exchange Savings" : "\u2705 1031\u4EA4\u6362\u8282\u7A0E"}</div>
+            <div style={{ fontSize:11, color:C.textSec, lineHeight:1.5 }}>{isEn ? `Defer ${fmtD(totalTax)} by purchasing replacement property >= ${fmtD(minReplacementPrice)}. QI fee ~$1,000-$1,500.` : `通过购买 >= ${fmtD(minReplacementPrice)} 的替代物业延税 ${fmtD(totalTax)}。QI费用约$1,000-$1,500。`}</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Timeline */}
+      <div style={{ padding:"8px 16px 0" }}>
+        <button onClick={() => setShowTimeline(!showTimeline)} style={{ width:"100%", background:C.card, border:"1px solid "+C.borderLight, borderRadius:18, padding:"14px 18px", cursor:"pointer", boxShadow:C.shadow, display:"flex", alignItems:"center", justifyContent:"space-between", fontFamily:FONT }}>
+          <span style={{ fontSize:13, fontWeight:700 }}>{isEn ? "\u{23F1} 1031 Timeline" : "\u{23F1} 1031\u65F6\u95F4\u7EBF"}</span>
+          <span style={{ fontSize:18, transform:showTimeline?"rotate(180deg)":"", transition:"transform .25s", color:C.textDim }}>{"\u2304"}</span>
+        </button>
+        {showTimeline && <div style={{ background:C.card, border:"1px solid "+C.borderLight, borderRadius:"0 0 18px 18px", padding:18, marginTop:-2, borderTop:"none" }}>
+          {[
+            {day:0, label:isEn?"Close Sale":"完成出售", desc:isEn?"Close on relinquished property. Proceeds go to QI.":"完成旧物业出售。收益转入QI托管。", color:C.warn, icon:"\u{1F3E0}"},
+            {day:45, label:isEn?"Identify (Day 45)":"识别物业（第45天）", desc:isEn?"Deadline to identify up to 3 replacement properties in writing to QI.":"书面通知QI最多3个替代物业。逾期失效。", color:C.danger, icon:"\u{1F50D}"},
+            {day:180, label:isEn?"Close Purchase (Day 180)":"完成购买（第180天）", desc:isEn?"Deadline to close on replacement property. No extensions.":"完成替代物业过户。不可延期。", color:C.arm, icon:"\u2705"},
+          ].map((step,i) => <div key={i} style={{ display:"flex", gap:12, marginBottom:i<2?16:0 }}>
+            <div style={{ display:"flex", flexDirection:"column", alignItems:"center", minWidth:36 }}>
+              <div style={{ width:32, height:32, borderRadius:"50%", background:step.color+"18", display:"flex", alignItems:"center", justifyContent:"center", fontSize:16 }}>{step.icon}</div>
+              {i < 2 && <div style={{ width:2, flex:1, background:C.border, marginTop:4 }} />}
+            </div>
+            <div style={{ flex:1, paddingBottom:i<2?0:0 }}>
+              <div style={{ fontSize:12, fontWeight:700, color:step.color }}>{step.label}</div>
+              <div style={{ fontSize:11, color:C.textSec, lineHeight:1.4, marginTop:2 }}>{step.desc}</div>
+            </div>
+          </div>)}
+        </div>}
+      </div>
+
+      <div style={{ padding:"8px 16px 0" }}><GlossarySection terms={EXCHANGE_GLOSSARY} en={isEn} /></div>
+      <BrandingFooter />
+    </div>
+  );
+}
+
+function App() {
+  const [page, setPage] = React.useState("home");
+  const [lang, setLang] = React.useState("cn"); // "cn" or "en"
+
+  if (page === "arm") return <ArmNavigator onBack={() => setPage("home")} lang={lang} />;
+  if (page === "points") return <PointsAnalyzer onBack={() => setPage("home")} lang={lang} />;
+  if (page === "refi") return <RefiAnalyzer onBack={() => setPage("home")} lang={lang} />;
+  if (page === "exchange") return <ExchangeAnalyzer onBack={() => setPage("home")} lang={lang} />;
+  return <HomePage onNavigate={setPage} lang={lang} setLang={setLang} />;
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(App));
+</script>
+</body>
+</html>
