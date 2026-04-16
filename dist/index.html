@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
 <title>Rate Navigator by JMJ | 房贷利率导航</title>
-<meta name="description" content="Professional mortgage decision tools: ARM vs Fixed, Points Comparison, Refinance Analysis, 1031 Exchange" />
+<meta name="description" content="Professional mortgage decision tools" />
 <meta name="theme-color" content="#2D9B65" />
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%232D9B65'/><path d='M16 6L8 14V26H12V20H20V26H24V14L16 6Z' fill='white'/></svg>" />
 <style>*{margin:0;padding:0;box-sizing:border-box}body{background:#F5F8F2;overflow-x:hidden;-webkit-font-smoothing:antialiased}#root{min-height:100vh}</style>
@@ -244,6 +244,22 @@ function GlobalStyles() {
 function HomePage({ onNavigate, lang, setLang }) {
   const isEn = lang === "en";
   const tools = [
+    {
+      id: "estimate",
+      icon: (
+        <svg width="44" height="44" viewBox="0 0 48 48" fill="none">
+          <rect width="48" height="48" rx="14" fill={C.fixed} />
+          <path d="M14 16H34M14 24H28M14 32H22" stroke="white" strokeWidth="2.5" strokeLinecap="round" />
+          <circle cx="34" cy="32" r="6" fill="white" fillOpacity="0.9" />
+          <text x="34" y="35" textAnchor="middle" fill={C.fixed} fontSize="8" fontWeight="700" fontFamily="sans-serif">$</text>
+        </svg>
+      ),
+      title: isEn? "Mortgage Estimator" : "月供估算器",
+      sub: "Payment Estimator by JMJ",
+      desc: isEn? "Estimate your monthly mortgage payment with accurate PMI, state-specific property tax & insurance, and property-type awareness (SFH/Condo/Co-op/Townhouse)" : "精确预估月供总额，含MGIC标准PMI、各州地税和保险、房屋类型智能识别（独立屋/Condo/Co-op/联排）",
+      tags: isEn? ["PMI", "Prop Tax", "Insurance", "HOA"] : ["PMI", "地税", "保险", "HOA"],
+      color: C.fixed, bg: C.fixedLight,
+    },
     {
       id: "arm",
       icon: (
@@ -622,7 +638,7 @@ function ArmNavigator({ onBack, lang }) {
     <div style={{ fontFamily:FONT, background:C.bg, minHeight:"100vh", color:C.text, maxWidth:480, margin:"0 auto", paddingTop:56, paddingBottom:108, WebkitFontSmoothing:"antialiased" }}>
       <GlobalStyles />
       {/* Fixed Header */}
-      <div style={{ position:"fixed", top:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, zIndex:100, background:"transparent", borderBottom:"none", boxShadow:"none" }}>
+      <div style={{ position:"fixed", top:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, zIndex:100, background:"rgba(255,255,255,0.15)", backdropFilter:"blur(22px) saturate(1.4)", WebkitBackdropFilter:"blur(22px) saturate(1.4)", borderBottom:"1px solid rgba(255,255,255,0.3)", boxShadow:"0 1px 12px rgba(30,60,30,0.04)" }}>
         <div style={{ padding:"10px 16px", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
           <div style={{ display:"flex", alignItems:"center", gap:10 }}>
             <button onClick={onBack} style={{ background:"none", border:"none", cursor:"pointer", fontSize:20, color:C.textDim, padding:"2px 6px" }}>‹</button>
@@ -833,13 +849,491 @@ function ArmNavigator({ onBack, lang }) {
     */
 const PT_COLORS = ["#D45555","#D98E30","#B8860B","#2D9B65","#5485E0","#7C5FC2","#9370DB"];
 
+/* 
+   MORTGAGE ESTIMATOR - First tab
+   Estimate monthly payment with property type awareness
+   More accurate than Zillow (MGIC-based PMI + state insurance + property-type costs)
+    */
+
+// State property tax rates (effective, 2025 Tax Foundation data)
+const STATE_PROP_TAX = {
+  NJ:2.23,IL:2.07,CT:1.92,NH:1.77,NE:1.73,TX:1.63,WI:1.61,OH:1.59,VT:1.59,IA:1.52,
+  PA:1.49,NY:1.40,MI:1.38,KS:1.34,RI:1.33,ME:1.24,AK:1.17,MA:1.14,MN:1.11,MD:1.05,
+  MO:0.98,ND:0.98,OR:0.93,GA:0.90,OK:0.90,WA:0.88,VA:0.87,IN:0.84,KY:0.83,FL:0.82,
+  NC:0.80,NM:0.76,CA:0.75,MS:0.75,MT:0.74,TN:0.67,AZ:0.63,ID:0.63,AR:0.62,UT:0.58,
+  WY:0.58,DE:0.58,WV:0.57,DC:0.57,SC:0.56,NV:0.55,LA:0.55,CO:0.55,AL:0.41,HI:0.28,
+  SD:1.08,
+};
+// Annual HO-3 insurance by state ($300K dwelling avg, 2025 Insurance.com / Bankrate data)
+const STATE_INSURANCE = {
+  FL:7136,LA:4000,OK:3900,NE:3700,TX:3400,KS:3200,CO:3200,MS:2800,AR:2700,AL:2600,
+  MO:2300,SD:2200,MT:2100,KY:2000,TN:2000,GA:1900,IA:1900,IL:1800,IN:1700,NC:1700,
+  ND:1700,MN:1900,WY:1700,NM:1700,SC:1700,WV:1600,AZ:1500,NY:1500,CT:1500,RI:1500,
+  OH:1400,CA:1400,VA:1300,NJ:1300,MA:1300,MI:1300,ME:1300,NH:1300,MD:1200,WI:1100,
+  PA:1100,WA:1100,NV:1100,DC:1100,AK:1100,DE:1000,ID:1000,OR:900,UT:900,VT:1063,HI:659,
+};
+const MORTGAGE_GLOSSARY = [
+  { term:"P&I", cn:"本金+利息", desc:"每月房贷的核心部分，由贷款额、利率、期限决定。贷款付清后消失。", descEn:"Principal & Interest. The core mortgage payment based on loan amount, rate, and term. Goes away when loan is paid off." },
+  { term:"PITI", cn:"房贷总成本", desc:"Principal+Interest+Taxes+Insurance。银行评估你是否能负担贷款用这个数字，一般总PITI月供不应超过月收入28%。", descEn:"Principal+Interest+Taxes+Insurance. Lenders use this for affordability; total PITI usually shouldn't exceed 28% of gross monthly income." },
+  { term:"PMI", cn:"私人贷款保险", desc:"首付<20%时要缴的保险。精确费率由信用评分(FICO)+LTV决定，0.19%-1.86%不等。LTV降至78%自动取消。", descEn:"Private Mortgage Insurance when down payment < 20%. Rate based on FICO + LTV (0.19%-1.86%). Auto-cancels at 78% LTV." },
+  { term:"HO-6 Insurance", cn:"公寓室内保险", desc:"Condo/Co-op业主买的\"墙内\"保险，覆盖室内装修和个人财产。building本身已有master policy。典型$300-700/年，远低于SFH的HO-3保险。", descEn:"Condo/co-op interior insurance ('walls-in'), covers improvements and personal property. Building has master policy. Typical $300-700/yr, much less than SFH HO-3." },
+  { term:"HOA/CC", cn:"业主管理费/公共费", desc:"Condo每月给HOA的common charges，覆盖大楼运营+储备金，不含地税。Townhouse一般有较小HOA。SFH通常为0。", descEn:"Condo common charges or townhouse HOA. Covers building operations + reserves. Does NOT include property tax (condo/TH owner pays separately). SFH usually $0." },
+  { term:"Maintenance", cn:"Co-op管理费", desc:"Co-op独有，包含大楼运营+物业税+可能的楼底按揭。所以Co-op不单独缴地税。Manhattan平均$2.54/sqft/月。", descEn:"Co-op unique. Includes operations + property tax + possibly underlying mortgage. So co-op owner does NOT pay property tax separately. Manhattan avg $2.54/sqft/month." },
+  { term:"Closing Cost", cn:"过户费用", desc:"购房时一次性支付的费用，含贷款费、产权保险、律师费、记录费、NYC mortgage tax等。一般2-5%购房价。", descEn:"One-time purchase costs: lender fees, title insurance, attorney, recording, NYC mortgage tax. Typically 2-5% of purchase price." },
+];
+
+function MortgageEstimator({ onBack, lang }) {
+  const isEn = lang === "en";
+  const [homePrice, setHomePrice] = React.useState(700000);
+  const [downPct, setDownPct] = React.useState(20);
+  const [rate, setRate] = React.useState(6.75);
+  const [termYears, setTermYears] = React.useState(30);
+  const [propType, setPropType] = React.useState("sfh"); // sfh/condo/coop/townhouse
+  const [state, setState] = React.useState("NY");
+  const [locationPreset, setLocationPreset] = React.useState("state_avg"); // state_avg, nyc_class1, nyc_condo, custom
+  const [customTaxRate, setCustomTaxRate] = React.useState(null); // null = use preset
+  const [creditScore, setCreditScore] = React.useState("740");
+  const [hoaOverride, setHoaOverride] = React.useState(null);
+  const [insOverride, setInsOverride] = React.useState(null);
+  const [showReport, setShowReport] = React.useState(false);
+
+  const loanAmount = Math.round(homePrice * (1 - downPct / 100));
+  const downAmount = homePrice - loanAmount;
+  const ltv = (loanAmount / homePrice) * 100;
+  const totalMonths = termYears * 12;
+  const pi = pmtCalc(rate, totalMonths, loanAmount);
+
+  // PMI (same logic as Points tool)
+  const PMI_RATES = {"760":{"97":0.55,"95":0.41,"90":0.30,"85":0.19},"740":{"97":0.73,"95":0.58,"90":0.41,"85":0.27},"720":{"97":0.85,"95":0.70,"90":0.50,"85":0.35},"700":{"97":1.05,"95":0.85,"90":0.65,"85":0.45},"680":{"97":1.25,"95":1.05,"90":0.85,"85":0.60},"660":{"97":1.55,"95":1.35,"90":1.10,"85":0.80},"640":{"97":1.80,"95":1.55,"90":1.30,"85":1.00},"620":{"97":1.86,"95":1.65,"90":1.45,"85":1.15}};
+  const pmiApplies = ltv > 80 && propType !== "coop"; // coops typically don't have conventional PMI
+  const ltvBucket = ltv > 95 ? "97" : ltv > 90 ? "95" : ltv > 85 ? "90" : "85";
+  const pmiRateAnnual = pmiApplies ? (PMI_RATES[creditScore]?.[ltvBucket] || 0.73) : 0;
+  const pmiMonthly = pmiApplies ? Math.round(loanAmount * pmiRateAnnual / 100 / 12) : 0;
+
+  // Property tax - based on EFFECTIVE rate applied to market price
+  // Effective rate = market value × (assessment ratio × nominal rate). 
+  // Co-op: bundled in maintenance, so 0 separately
+  const stateTaxRate = STATE_PROP_TAX[state] || 1.0;
+  // Local presets by state - KEY DIFFERENTIATION from Zillow
+  // Each state has 2-6 specific market presets plus "Custom"
+  // Rates are 2025 effective rates (tax ÷ market value) from county assessors, Tax Foundation, Civic Federation, etc.
+  const LOCAL_PRESETS_BY_STATE = {
+    NY: [
+      {k:"nyc_class1", l:isEn?"NYC 1-3 Fam":"NYC家庭", rate:0.88, note:isEn?"Class 1: 6% assessed × 20.085%":"一类：市值6%×20.085%"},
+      {k:"nyc_condo", l:isEn?"NYC Condo":"NYC公寓", rate:0.60, note:isEn?"Class 2 condos typically lower":"二类condo通常较低"},
+      {k:"westchester", l:isEn?"Westchester":"威彻斯特", rate:2.39, note:isEn?"High-tax Hudson-side suburb":"Hudson河高税郊区"},
+      {k:"long_island_nassau", l:"Nassau LI", rate:2.10, note:isEn?"Long Island, high":"长岛，高税"},
+      {k:"long_island_suffolk", l:"Suffolk LI", rate:1.90, note:isEn?"Long Island, high":"长岛，较高"},
+    ],
+    CA: [
+      {k:"la_county", l:"LA County", rate:1.25, note:isEn?"⚠ Prop 13: assessed at purchase price":"⚠ Prop 13：按购买价评估"},
+      {k:"sf_bay", l:"SF Bay", rate:1.18, note:isEn?"⚠ Long-term owners pay much less":"⚠ 长期业主有效税率远低"},
+      {k:"orange", l:"Orange Cty", rate:1.15, note:isEn?"Prop 13 baseline":"Prop 13基准"},
+      {k:"san_diego", l:"San Diego", rate:1.10, note:isEn?"One of CA's lower":"加州较低"},
+      {k:"mello_roos", l:"Mello-Roos", rate:1.55, note:isEn?"CFD zones (Riverside/Sacramento/OC new dev)":"特别税区（Riverside/Sac/OC新区）"},
+    ],
+    TX: [
+      {k:"harris", l:"Harris/Houston", rate:2.15, note:isEn?"⚠ $140K homestead exemption reduces this":"⚠ $140K宅地豁免可降低"},
+      {k:"travis", l:"Travis/Austin", rate:2.10, note:isEn?"⚠ Homestead caps 10%/yr":"⚠ 宅地年涨幅封顶10%"},
+      {k:"dallas", l:"Dallas County", rate:1.85, note:isEn?"No state income tax, but high prop tax":"无州所得税，但地税高"},
+      {k:"tarrant", l:"Tarrant/FtW", rate:1.80, note:isEn?"Fort Worth area":"沃斯堡地区"},
+      {k:"fort_bend", l:"Fort Bend", rate:2.40, note:isEn?"Houston suburb, highest in TX":"休斯顿郊区，TX最高"},
+      {k:"williamson", l:"Williamson", rate:2.25, note:isEn?"Austin suburbs":"奥斯汀郊区"},
+    ],
+    NJ: [
+      {k:"bergen", l:"Bergen Cty", rate:2.05, note:isEn?"Close to NYC, premium":"近NYC，溢价"},
+      {k:"essex", l:"Essex Cty", rate:2.44, note:isEn?"Newark/Montclair, highest in NJ":"Newark/Montclair，NJ最高"},
+      {k:"hudson", l:"Hudson Cty", rate:1.80, note:isEn?"Jersey City/Hoboken":"泽西市/Hoboken"},
+      {k:"monmouth", l:"Monmouth", rate:1.80, note:isEn?"Jersey Shore":"海岸郊区"},
+      {k:"morris", l:"Morris Cty", rate:2.10, note:isEn?"Wealthy NW suburbs":"富裕西北郊区"},
+    ],
+    FL: [
+      {k:"miami_dade", l:"Miami-Dade", rate:0.97, note:isEn?"⚠ Save Our Homes: 3% cap for homestead":"⚠ Save Our Homes：自住3%封顶"},
+      {k:"broward", l:"Broward", rate:1.10, note:isEn?"Ft Lauderdale":"劳德代尔堡"},
+      {k:"palm_beach", l:"Palm Beach", rate:1.06, note:isEn?"⚠ Investment property: 10% cap only":"⚠ 投资房仅10%封顶"},
+      {k:"orange", l:"Orange/Orlando", rate:0.93, note:isEn?"Central FL":"中佛州"},
+      {k:"hillsborough", l:"Hillsborough", rate:1.07, note:isEn?"Tampa area":"坦帕地区"},
+    ],
+    IL: [
+      {k:"chicago", l:"Chicago", rate:1.80, note:isEn?"City proper, lower than suburbs":"芝加哥市，低于郊区"},
+      {k:"cook_sub", l:"Cook Suburbs", rate:2.70, note:isEn?"Oak Park/Evanston can hit 3.5%":"Oak Park/Evanston可达3.5%"},
+      {k:"dupage", l:"DuPage", rate:2.10, note:isEn?"Naperville/Wheaton":"Naperville/Wheaton"},
+      {k:"lake", l:"Lake Cty", rate:2.63, note:isEn?"Highest in IL":"IL最高"},
+      {k:"will", l:"Will Cty", rate:2.12, note:isEn?"Joliet area":"Joliet地区"},
+    ],
+    MA: [
+      {k:"boston", l:"Boston", rate:0.95, note:isEn?"Prop 2½ limits annual levy":"Prop 2½限制年征税"},
+      {k:"middlesex", l:"Middlesex", rate:1.15, note:isEn?"Cambridge/suburbs":"剑桥/郊区"},
+      {k:"norfolk", l:"Norfolk Cty", rate:1.10, note:isEn?"Brookline/Quincy area":"Brookline/Quincy"},
+      {k:"worcester", l:"Worcester", rate:1.45, note:isEn?"Central MA, higher":"中部MA，较高"},
+    ],
+    WA: [
+      {k:"king_seattle", l:"King/Seattle", rate:0.95, note:isEn?"No state income tax":"无州所得税"},
+      {k:"snohomish", l:"Snohomish", rate:1.00, note:isEn?"North of Seattle":"Seattle以北"},
+      {k:"pierce", l:"Pierce/Tacoma", rate:1.10, note:isEn?"Tacoma area":"塔科马地区"},
+      {k:"king_bellevue", l:"Bellevue/Eastside", rate:0.85, note:isEn?"Lower rate, higher values":"税率低但房价高"},
+    ],
+    GA: [
+      {k:"fulton_atlanta", l:"Fulton/Atlanta", rate:1.15, note:isEn?"City proper":"亚特兰大市"},
+      {k:"dekalb", l:"DeKalb", rate:1.20, note:isEn?"Eastern Atlanta metro":"亚特兰大东郊"},
+      {k:"cobb", l:"Cobb/Marietta", rate:0.85, note:isEn?"NW suburb, lower":"西北郊，较低"},
+      {k:"gwinnett", l:"Gwinnett", rate:1.00, note:isEn?"NE suburb":"东北郊"},
+    ],
+    PA: [
+      {k:"philly", l:"Philadelphia", rate:0.95, note:isEn?"City proper":"费城市"},
+      {k:"montgomery_pa", l:"Montgomery", rate:1.62, note:isEn?"Main Line suburbs":"富裕郊区"},
+      {k:"chester", l:"Chester", rate:1.65, note:isEn?"Western Philly suburbs":"费城西郊"},
+      {k:"allegheny", l:"Allegheny/Pitt", rate:2.10, note:isEn?"Pittsburgh area":"匹兹堡地区"},
+    ],
+    VA: [
+      {k:"fairfax", l:"Fairfax", rate:0.96, note:isEn?"DC metro, high values":"DC近郊，房价高"},
+      {k:"arlington", l:"Arlington", rate:0.88, note:isEn?"Across from DC":"DC对面"},
+      {k:"loudoun", l:"Loudoun", rate:1.05, note:isEn?"DC western suburbs":"DC西郊"},
+      {k:"pr_william", l:"Prince William", rate:1.12, note:isEn?"Farther DC suburbs":"DC远郊"},
+    ],
+    MD: [
+      {k:"montgomery_md", l:"Montgomery", rate:0.87, note:isEn?"DC metro":"DC近郊"},
+      {k:"pg", l:"Prince George", rate:1.40, note:isEn?"East of DC":"DC东郊"},
+      {k:"baltimore_city", l:"Baltimore City", rate:1.75, note:isEn?"Highest in MD":"MD最高"},
+      {k:"howard", l:"Howard", rate:1.15, note:isEn?"Columbia/Ellicott":"哥伦比亚"},
+    ],
+    MI: [
+      {k:"wayne_detroit", l:"Wayne/Detroit", rate:3.10, note:isEn?"Highest urban rate in US":"全美城市最高"},
+      {k:"oakland", l:"Oakland", rate:1.60, note:isEn?"Detroit affluent suburbs":"底特律富郊"},
+      {k:"macomb", l:"Macomb", rate:1.70, note:isEn?"Detroit NE suburbs":"底特律东北郊"},
+      {k:"washtenaw", l:"Washtenaw/AA", rate:1.85, note:isEn?"Ann Arbor area":"安娜堡地区"},
+    ],
+    AZ: [
+      {k:"maricopa", l:"Maricopa/Phx", rate:0.65, note:isEn?"Phoenix metro":"凤凰城都市"},
+      {k:"pima", l:"Pima/Tucson", rate:0.75, note:isEn?"Tucson area":"图森地区"},
+      {k:"scottsdale", l:"Scottsdale", rate:0.55, note:isEn?"Lower rate, premium area":"税率低但溢价"},
+    ],
+    CO: [
+      {k:"denver", l:"Denver", rate:0.55, note:isEn?"Low rate but fast-rising values":"税率低但房价快涨"},
+      {k:"boulder", l:"Boulder", rate:0.55, note:isEn?"Similar to Denver":"类似丹佛"},
+      {k:"el_paso_co", l:"Colorado Spr", rate:0.45, note:isEn?"Colorado Springs":"科罗拉多泉"},
+      {k:"jefferson", l:"Jefferson", rate:0.55, note:isEn?"Western Denver suburbs":"丹佛西郊"},
+    ],
+    OH: [
+      {k:"cuyahoga", l:"Cuyahoga/Cle", rate:2.40, note:isEn?"Cleveland area, OH's highest":"克利夫兰，OH最高"},
+      {k:"franklin", l:"Franklin/Cols", rate:1.75, note:isEn?"Columbus area":"哥伦布地区"},
+      {k:"hamilton_oh", l:"Hamilton/Cin", rate:1.95, note:isEn?"Cincinnati":"辛辛那提"},
+      {k:"summit", l:"Summit/Akron", rate:2.10, note:isEn?"Akron area":"阿克伦"},
+    ],
+    CT: [
+      {k:"fairfield", l:"Fairfield", rate:1.60, note:isEn?"Greenwich/Stamford":"格林威治/Stamford"},
+      {k:"hartford", l:"Hartford", rate:2.45, note:isEn?"Higher than coast":"高于沿海"},
+      {k:"new_haven", l:"New Haven", rate:2.25, note:isEn?"Yale area":"耶鲁地区"},
+      {k:"middlesex_ct", l:"Middlesex CT", rate:2.00, note:isEn?"Middletown area":"Middletown"},
+    ],
+  };
+  // Fallback for any state: just state_avg + custom
+  const stateSpecificPresets = LOCAL_PRESETS_BY_STATE[state] || [];
+  // Build display presets: state_avg first, then state-specific, then custom
+  const displayPresets = [
+    {k:"state_avg", l:isEn?"State Avg":"州平均", rate:stateTaxRate, note:isEn?`${state} state-wide average`:`${state}州平均`},
+    ...stateSpecificPresets,
+    {k:"custom", l:isEn?"Custom":"自定义", rate:customTaxRate ?? stateTaxRate, note:isEn?"Enter your actual tax ÷ home value":"输入实际地税÷房价"},
+  ];
+  const currentPreset = displayPresets.find(p => p.k === locationPreset) || displayPresets[0];
+  const effectiveTaxRate = locationPreset === "custom" ? (customTaxRate ?? stateTaxRate) : currentPreset.rate;
+  const defaultTaxMonthly = propType === "coop" ? 0 : Math.round(homePrice * effectiveTaxRate / 100 / 12);
+  const taxMonthly = defaultTaxMonthly;
+
+  // Insurance - SFH/TH use HO-3 (full state rate), Condo/Coop use HO-6 (~30% of HO-3)
+  const stateIns = STATE_INSURANCE[state] || 2500;
+  const dwellingFactor = homePrice / 300000; // scale from $300K baseline
+  const ho3Annual = Math.round(stateIns * Math.min(Math.max(dwellingFactor, 0.5), 3));
+  const ho6Annual = Math.max(300, Math.round(ho3Annual * 0.3)); // ~30% of HO-3, min $300
+  const defaultInsMonthly = Math.round((propType === "condo" || propType === "coop" ? ho6Annual : ho3Annual) / 12);
+  const insMonthly = insOverride !== null ? insOverride : defaultInsMonthly;
+
+  // HOA / Maintenance - defaults by type
+  const defaultHOA = propType === "sfh" ? 0 : propType === "condo" ? 500 : propType === "townhouse" ? 250 : 1500;
+  const hoaMonthly = hoaOverride !== null ? hoaOverride : defaultHOA;
+
+  const totalMonthly = Math.round(pi + taxMonthly + insMonthly + pmiMonthly + hoaMonthly);
+  // Cash to close: down payment + estimated 3% closing costs
+  const closingCost = Math.round(homePrice * 0.03);
+  const cashToClose = downAmount + closingCost;
+  // Income needed (28% housing ratio)
+  const incomeNeeded = Math.round((totalMonthly / 0.28) * 12);
+
+  const breakdown = [
+    { label: isEn?"Principal & Interest":"本金+利息", value: Math.round(pi), color: C.arm, key:"pi" },
+    { label: isEn?"Property Tax":"地税", value: taxMonthly, color: C.fixed, key:"tax", hide: propType === "coop" },
+    { label: isEn?(propType==="condo"||propType==="coop"?"HO-6 Insurance":"Home Insurance"):(propType==="condo"||propType==="coop"?"HO-6保险":"房屋保险"), value: insMonthly, color: C.purple, key:"ins" },
+    { label: "PMI", value: pmiMonthly, color: C.warn, key:"pmi", hide: !pmiApplies },
+    { label: isEn?(propType==="coop"?"Maintenance":"HOA"):(propType==="coop"?"Co-op管理费":"HOA"), value: hoaMonthly, color: C.danger, key:"hoa", hide: propType === "sfh" && hoaMonthly === 0 },
+  ].filter(x => !x.hide);
+
+  const propTypeLabel = (t) => {
+    const map = {sfh:isEn?"Single Family":"独立屋",condo:"Condo",coop:"Co-op",townhouse:isEn?"Townhouse":"联排屋"};
+    return map[t];
+  };
+
+  const genText = () => {
+    const L = [];
+    const r = isEn;
+    L.push(r?"MORTGAGE PAYMENT ESTIMATE":"房贷月供估算");
+    L.push("");
+    L.push((r?"Home: ":"房价：") + fmtD(homePrice) + " | " + (r?"Down: ":"首付：") + downPct + "% (" + fmtD(downAmount) + ") | " + (r?"Loan: ":"贷款：") + fmtD(loanAmount));
+    L.push((r?"Rate: ":"利率：") + rate + "% | " + (r?"Term: ":"期限：") + termYears + (r?"yr":"年") + " | LTV: " + ltv.toFixed(1) + "%");
+    L.push((r?"Type: ":"类型：") + propTypeLabel(propType) + " | " + (r?"State: ":"州：") + state + " (" + stateTaxRate + "% tax)");
+    L.push("");
+    L.push(r?"MONTHLY BREAKDOWN":"月供明细");
+    breakdown.forEach(b => L.push("  " + b.label + ": " + fmtD(b.value)));
+    L.push("  ─────────────");
+    L.push("  " + (r?"TOTAL: ":"总计：") + fmtD(totalMonthly) + "/mo");
+    L.push("");
+    L.push((r?"Cash to Close: ":"过户需现金：") + fmtD(cashToClose) + " (" + (r?"down + ~3% closing":"首付+约3%过户费") + ")");
+    L.push((r?"Income Needed (pre-tax): ":"所需年收入（税前）：") + fmtD(incomeNeeded) + " (" + (r?"28% housing ratio":"按28%房贷收入比") + ")");
+    if (pmiApplies) L.push((r?"PMI: ":"PMI: ") + pmiRateAnnual + "% /yr, FICO " + creditScore + "+, " + (r?"cancels at 78% LTV":"LTV降至78%取消"));
+    L.push("");
+    L.push(r?"For informational purposes only. Consult your MLO.":"仅供参考，请咨询贷款专员。");
+    return L.join("\n");
+  };
+
+  if (showReport) {
+    const txt = genText();
+    return (
+      <div style={{ fontFamily:FONT, background:C.white, minHeight:"100vh", color:C.text, maxWidth:480, margin:"0 auto", padding:"14px 16px" }}>
+        <GlobalStyles />
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:8 }}><LogoSVG size={24} /><div><div style={{ fontSize:14, fontWeight:700 }}>{isEn?"Payment Estimate":"月供估算"}</div><div style={{ fontSize:8, color:C.textMuted }}>Rate Navigator by JMJ · {new Date().toLocaleDateString(isEn?"en-US":"zh-CN")}</div></div></div>
+          <button onClick={() => setShowReport(false)} style={{ background:"none", border:"1px solid "+C.border, borderRadius:6, padding:"3px 10px", cursor:"pointer", fontSize:11, color:C.textDim }}>{"\u2715"}</button>
+        </div>
+        <div style={{ height:2, background:"linear-gradient(90deg,"+C.arm+","+C.fixed+")", borderRadius:1, marginBottom:12 }} />
+        <div style={{ textAlign:"center", padding:"20px 16px", background:"linear-gradient(135deg,"+C.armLight+","+C.fixedLight+")", borderRadius:14, marginBottom:12 }}>
+          <div style={{ fontSize:10, color:C.textDim, fontWeight:600, letterSpacing:1 }}>{isEn?"TOTAL MONTHLY":"月供总计"}</div>
+          <div style={{ fontSize:36, fontWeight:700, fontFamily:MONO, color:C.arm, margin:"4px 0" }}>{fmtD(totalMonthly)}</div>
+          <div style={{ fontSize:10, color:C.textMuted }}>{fmtD(homePrice)} · {downPct}% down · {rate}% · {propTypeLabel(propType)} · {state}</div>
+        </div>
+        <div style={{ background:C.cardAlt, borderRadius:12, padding:"10px 12px", marginBottom:10 }}>
+          <div style={{ fontSize:10, fontWeight:700, color:C.textDim, marginBottom:6 }}>{isEn?"BREAKDOWN":"构成明细"}</div>
+          {breakdown.map((b,i) => <div key={i} style={{ display:"flex", justifyContent:"space-between", padding:"4px 0", borderBottom:i<breakdown.length-1?"1px solid "+C.borderLight:"none" }}><span style={{ fontSize:11, color:C.textSec }}>{b.label}</span><span style={{ fontSize:12, fontWeight:600, fontFamily:MONO, color:b.color }}>{fmtD(b.value)}</span></div>)}
+          <div style={{ display:"flex", justifyContent:"space-between", padding:"6px 0 0", borderTop:"2px solid "+C.arm, marginTop:4 }}><span style={{ fontSize:12, fontWeight:700 }}>{isEn?"Total":"总计"}</span><span style={{ fontSize:14, fontWeight:700, fontFamily:MONO, color:C.arm }}>{fmtD(totalMonthly)}</span></div>
+        </div>
+        <div style={{ display:"flex", gap:8, marginBottom:12 }}>
+          <div style={{ flex:1, padding:10, background:C.fixedLight, borderRadius:10, textAlign:"center" }}>
+            <div style={{ fontSize:9, color:C.fixed, fontWeight:600 }}>{isEn?"CASH TO CLOSE":"过户现金"}</div>
+            <div style={{ fontSize:15, fontWeight:700, fontFamily:MONO, color:C.fixed }}>{fmtD(cashToClose)}</div>
+            <div style={{ fontSize:8, color:C.textMuted }}>{isEn?"down + ~3%":"首付+约3%"}</div>
+          </div>
+          <div style={{ flex:1, padding:10, background:C.purpleLight, borderRadius:10, textAlign:"center" }}>
+            <div style={{ fontSize:9, color:C.purple, fontWeight:600 }}>{isEn?"INCOME (PRE-TAX)":"所需年收入(税前)"}</div>
+            <div style={{ fontSize:15, fontWeight:700, fontFamily:MONO, color:C.purple }}>{fmtD(incomeNeeded)}</div>
+            <div style={{ fontSize:8, color:C.textMuted }}>{isEn?"/yr pre-tax · 28%":"/年税前 · 28%"}</div>
+          </div>
+        </div>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", borderTop:"1px solid "+C.border, paddingTop:8 }}>
+          <span style={{ fontSize:8, color:C.textMuted }}>Product by JMJ</span>
+          <button onClick={() => navigator.clipboard && navigator.clipboard.writeText(txt)} style={{ padding:"3px 10px", borderRadius:6, border:"1px solid "+C.arm, cursor:"pointer", background:C.armLight, color:C.arm, fontSize:9, fontWeight:600, fontFamily:FONT }}>{isEn?"Copy":"复制"}</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ fontFamily:FONT, background:C.bg, minHeight:"100vh", color:C.text, maxWidth:480, margin:"0 auto", paddingTop:56, paddingBottom:32 }}>
+      <GlobalStyles />
+      <div style={{ position:"fixed", top:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, zIndex:100, background:"rgba(255,255,255,0.15)", backdropFilter:"blur(22px) saturate(1.4)", WebkitBackdropFilter:"blur(22px) saturate(1.4)", borderBottom:"1px solid rgba(255,255,255,0.3)", boxShadow:"0 1px 12px rgba(30,60,30,0.04)" }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"10px 16px" }}>
+          <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+            <button onClick={onBack} style={{ background:C.cardAlt, border:"none", borderRadius:8, padding:"5px 8px", cursor:"pointer", fontSize:14, color:C.textSec }}>{"\u2190"}</button>
+            <LogoSVG size={24} />
+            <div>
+              <div style={{ fontSize:14, fontWeight:700 }}>{isEn?"Mortgage Estimator":"月供估算"}</div>
+              <div style={{ fontSize:9, color:C.textMuted }}>PAYMENT ESTIMATOR by JMJ</div>
+            </div>
+          </div>
+          <div style={{ display:"flex", gap:3 }}>
+            <button onClick={() => setShowReport(true)} style={{ background:C.arm, border:"none", borderRadius:8, padding:"5px 10px", cursor:"pointer", fontSize:11, color:C.white, fontFamily:FONT, fontWeight:600 }}>{"\u{1F4CB}"}</button>
+            <button onClick={() => { setHomePrice(700000); setDownPct(20); setRate(6.75); setPropType("sfh"); setState("NY"); setLocationPreset("state_avg"); setCustomTaxRate(null); setCreditScore("740"); setHoaOverride(null); setInsOverride(null); }} style={{ background:C.cardAlt, border:"1px solid "+C.border, borderRadius:8, padding:"5px 8px", cursor:"pointer", fontSize:10, color:C.textSec, fontFamily:FONT, fontWeight:600 }}>{"\u{1F504}"}</button>
+          </div>
+        </div>
+      </div>
+
+      {/* Sticky compact floating payment display - fully transparent w/ blur */}
+      <div style={{ position:"sticky", top:44, zIndex:50, padding:"8px 16px 6px", background:"transparent", backdropFilter:"blur(24px) saturate(1.4)", WebkitBackdropFilter:"blur(24px) saturate(1.4)" }}>
+        <div style={{ display:"flex", alignItems:"center", gap:12, padding:"10px 14px", background:"rgba(255,255,255,0.28)", backdropFilter:"blur(20px) saturate(1.3)", WebkitBackdropFilter:"blur(20px) saturate(1.3)", borderRadius:14, border:"1px solid rgba(255,255,255,0.4)", boxShadow:"0 4px 24px rgba(30,60,30,0.06)" }}>
+          <div style={{ flexShrink:0 }}>
+            <div style={{ fontSize:8, color:C.textDim, fontWeight:600, letterSpacing:0.8 }}>{isEn?"MONTHLY":"月供"}</div>
+            <div style={{ fontSize:22, fontWeight:700, fontFamily:MONO, color:C.arm, letterSpacing:-0.5, lineHeight:1 }}>{fmtD(totalMonthly)}</div>
+          </div>
+          <div style={{ flex:1, minWidth:0 }}>
+            <div style={{ display:"flex", height:4, borderRadius:2, overflow:"hidden", marginBottom:3 }}>
+              {breakdown.map((b,i) => <div key={i} style={{ flex:b.value, background:b.color }} title={b.label} />)}
+            </div>
+            <div style={{ fontSize:9, color:C.textMuted, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{propTypeLabel(propType)} · {state} · {downPct}% {isEn?"down":"首付"}{pmiApplies ? " · "+(isEn?"PMI":"PMI") : ""}</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Inputs */}
+      <div style={{ padding:"8px 16px 0" }}>
+        <div style={{ background:C.white, borderRadius:14, padding:14, marginBottom:10, boxShadow:C.shadow }}>
+          <AmountSlider label={isEn?"Home Price":"房价"} value={homePrice} onChange={setHomePrice} min={100000} max={3000000} step={25000} color={C.arm} />
+          <div style={{ marginBottom:10 }}>
+            <div style={{ display:"flex", justifyContent:"space-between", marginBottom:6 }}>
+              <span style={{ fontSize:11, color:C.textDim }}>{isEn?"Down Payment":"首付比例"}{downPct < 20 && <span style={{ fontSize:9, color:C.warn, fontWeight:700, marginLeft:6, padding:"1px 6px", background:C.warnLight, borderRadius:4 }}>{isEn?"\u26A0 PMI":"\u26A0 需PMI"}</span>}</span>
+              <span style={{ fontSize:12, fontWeight:700, fontFamily:MONO }}>{downPct}% ({fmtD(downAmount)})</span>
+            </div>
+            <input type="range" min={3} max={50} step={1} value={downPct} onChange={e => setDownPct(Number(e.target.value))}
+              style={{ width:"100%", height:5, borderRadius:3, outline:"none", appearance:"none", WebkitAppearance:"none", cursor:"pointer", background:`linear-gradient(to right,${C.arm} 0%,${C.arm} ${((downPct-3)/47)*100}%,${C.border} ${((downPct-3)/47)*100}%,${C.border} 100%)` }} />
+            {downPct < 20 && <div style={{ fontSize:9, color:C.warn, marginTop:3, fontWeight:500 }}>{isEn?`LTV ${ltv.toFixed(1)}% > 80%, lender requires PMI until balance reaches 78% of price`:`LTV ${ltv.toFixed(1)}% > 80%，银行要求缴PMI直到余额降至房价的78%`}</div>}
+          </div>
+          <div style={{ marginBottom:10 }}>
+            <div style={{ display:"flex", justifyContent:"space-between", marginBottom:6 }}>
+              <span style={{ fontSize:11, color:C.textDim }}>{isEn?"Interest Rate":"利率"}</span>
+              <span style={{ fontSize:12, fontWeight:700, fontFamily:MONO }}>{rate.toFixed(3)}%</span>
+            </div>
+            <input type="range" min={3} max={10} step={0.125} value={rate} onChange={e => setRate(Number(e.target.value))}
+              style={{ width:"100%", height:5, borderRadius:3, outline:"none", appearance:"none", WebkitAppearance:"none", cursor:"pointer", background:`linear-gradient(to right,${C.fixed} 0%,${C.fixed} ${((rate-3)/7)*100}%,${C.border} ${((rate-3)/7)*100}%,${C.border} 100%)` }} />
+          </div>
+          <div style={{ marginBottom:10 }}>
+            <div style={{ fontSize:11, color:C.textDim, fontWeight:600, marginBottom:4 }}>{isEn?"Loan Term":"贷款期限"}</div>
+            <div style={{ display:"flex", gap:4, background:C.cardAlt, borderRadius:10, padding:2 }}>
+              {[15,20,30].map(y => { const a=y===termYears; return <button key={y} onClick={() => setTermYears(y)} style={{ flex:1, padding:"7px 2px", borderRadius:8, border:"none", cursor:"pointer", background:a?C.white:"transparent", boxShadow:a?C.shadow:"none", fontSize:12, fontWeight:a?700:500, color:a?C.arm:C.textDim, fontFamily:FONT }}>{y}{isEn?"yr":"年"}</button>; })}
+            </div>
+          </div>
+        </div>
+
+        {/* Property Type */}
+        <div style={{ background:C.white, borderRadius:14, padding:14, marginBottom:10, boxShadow:C.shadow }}>
+          <div style={{ fontSize:11, color:C.textDim, fontWeight:600, marginBottom:6 }}>{isEn?"Property Type":"房屋类型"}</div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:6 }}>
+            {[
+              {k:"sfh", l:isEn?"\u{1F3E0} Single Family":"\u{1F3E0} 独立屋", sub:isEn?"Tax + Insurance":"地税 + 保险"},
+              {k:"condo", l:"\u{1F3E2} Condo", sub:isEn?"Tax + HOA + HO-6":"地税 + HOA + HO-6"},
+              {k:"coop", l:"\u{1F3EC} Co-op", sub:isEn?"Maint. (incl. tax)":"管理费(含税)"},
+              {k:"townhouse", l:isEn?"\u{1F3D8} Townhouse":"\u{1F3D8} 联排屋", sub:isEn?"Tax + small HOA":"地税 + 小HOA"},
+            ].map(t => { const a=t.k===propType; return <button key={t.k} onClick={() => { setPropType(t.k); setHoaOverride(null); }} style={{ padding:"8px 6px", borderRadius:10, border:a?"2px solid "+C.arm:"1px solid "+C.border, cursor:"pointer", background:a?C.armLight:C.white, textAlign:"left" }}>
+              <div style={{ fontSize:12, fontWeight:700, color:a?C.arm:C.text }}>{t.l}</div>
+              <div style={{ fontSize:9, color:C.textMuted, marginTop:2 }}>{t.sub}</div>
+            </button>; })}
+          </div>
+        </div>
+
+        {/* Location + Credit */}
+        <div style={{ background:C.white, borderRadius:14, padding:14, marginBottom:10, boxShadow:C.shadow }}>
+          <div style={{ display:"flex", gap:8, marginBottom:10 }}>
+            <div style={{ flex:1 }}>
+              <div style={{ fontSize:11, color:C.textDim, fontWeight:600, marginBottom:4 }}>{isEn?"State":"所在州"}{propType==="coop" && <span style={{ fontSize:9, color:C.textMuted, fontWeight:500 }}> · {isEn?"(insurance only)":"(仅用于保险)"}</span>}</div>
+              <select value={state} onChange={e => { setState(e.target.value); setLocationPreset("state_avg"); setCustomTaxRate(null); setInsOverride(null); }} style={{ width:"100%", padding:"8px 6px", borderRadius:8, border:"1px solid "+C.border, fontSize:12, fontFamily:FONT, background:C.white, outline:"none" }}>
+                {Object.keys(STATE_PROP_TAX).sort().map(k => <option key={k} value={k}>{k} · {STATE_PROP_TAX[k]}%</option>)}
+              </select>
+              {propType === "coop" ? <div style={{ fontSize:9, color:C.textMuted, marginTop:3, fontStyle:"italic" }}>{isEn?`Co-op: tax bundled in maintenance. State only affects insurance ($${fmtD(stateIns)}/yr)`:`Co-op: 地税含在管理费中。州仅影响保险 ($${fmtD(stateIns)}/年)`}</div> : <div style={{ fontSize:9, color:C.textMuted, marginTop:3 }}>{isEn?`State avg tax: ${stateTaxRate}% · Ins: ${fmtD(stateIns)}/yr`:`州平均地税: ${stateTaxRate}% · 保险: ${fmtD(stateIns)}/年`}</div>}
+            </div>
+            {pmiApplies && <div style={{ flex:1 }}>
+              <div style={{ fontSize:11, color:C.textDim, fontWeight:600, marginBottom:4 }}>{isEn?"Credit (FICO)":"信用评分"}</div>
+              <select value={creditScore} onChange={e => setCreditScore(e.target.value)} style={{ width:"100%", padding:"8px 6px", borderRadius:8, border:"1px solid "+C.border, fontSize:12, fontFamily:FONT, background:C.white, outline:"none" }}>
+                <option value="760">760+ ({isEn?"Excellent":"优秀"})</option>
+                <option value="740">740-759</option>
+                <option value="720">720-739</option>
+                <option value="700">700-719</option>
+                <option value="680">680-699</option>
+                <option value="660">660-679</option>
+                <option value="640">640-659</option>
+                <option value="620">620-639</option>
+              </select>
+              <div style={{ fontSize:9, color:C.warn, marginTop:3, fontWeight:600 }}>{isEn?`PMI ${pmiRateAnnual}% (LTV ${ltv.toFixed(1)}%)`:`PMI ${pmiRateAnnual}% (LTV ${ltv.toFixed(1)}%)`}</div>
+            </div>}
+          </div>
+          {/* Location preset - KEY DIFFERENTIATION from Zillow: state-specific markets */}
+          {propType !== "coop" && <div>
+            <div style={{ fontSize:11, color:C.textDim, fontWeight:600, marginBottom:6 }}>{isEn?`Local Tax (${state})`:`本地税率（${state}）`} <span style={{ fontSize:9, color:C.textMuted, fontWeight:500 }}>{isEn?"(assessed often \u2260 market)":"(评估价\u2260市场价)"}</span></div>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(3, 1fr)", gap:4, marginBottom:4 }}>
+              {displayPresets.map(p => { const a=p.k===locationPreset; return <button key={p.k} onClick={() => { setLocationPreset(p.k); if (p.k !== "custom") setCustomTaxRate(null); }} style={{ padding:"5px 2px", borderRadius:6, border:a?"1.5px solid "+C.fixed:"1px solid "+C.border, cursor:"pointer", background:a?C.fixedLight:C.white, fontSize:9, fontWeight:a?700:500, color:a?C.fixed:C.textDim, fontFamily:FONT, lineHeight:1.2 }}>{p.l}</button>; })}
+            </div>
+            <div style={{ fontSize:9, color:C.fixed, marginTop:4, fontWeight:600 }}>{effectiveTaxRate.toFixed(2)}% · {fmtD(Math.round(homePrice*effectiveTaxRate/100/12))}/mo</div>
+            <div style={{ fontSize:8, color:currentPreset.note && currentPreset.note.startsWith("⚠")?C.warn:C.textMuted, marginTop:2, lineHeight:1.4, fontStyle:"italic", fontWeight:currentPreset.note && currentPreset.note.startsWith("⚠")?600:400 }}>{currentPreset.note}</div>
+            {stateSpecificPresets.length === 0 && <div style={{ fontSize:8, color:C.textMuted, marginTop:4, padding:"4px 8px", background:C.cardAlt, borderRadius:6, fontStyle:"italic" }}>{isEn?`No city-level presets for ${state} yet. Use state average or enter your actual tax rate below.`:`${state}暂无市级预设。使用州平均或下方输入实际税率。`}</div>}
+          </div>}
+        </div>
+
+        {/* Monthly Breakdown */}
+        <div style={{ background:C.white, borderRadius:14, padding:14, marginBottom:10, boxShadow:C.shadow }}>
+          <div style={{ fontSize:12, color:C.text, fontWeight:700, marginBottom:10 }}>{isEn?"Monthly Breakdown":"月供构成"}</div>
+          {breakdown.map((b,i) => (
+            <div key={i} style={{ display:"flex", alignItems:"center", gap:8, padding:"7px 0", borderBottom:i<breakdown.length-1?"1px solid "+C.borderLight:"none" }}>
+              <div style={{ width:8, height:8, borderRadius:4, background:b.color, flexShrink:0 }} />
+              <div style={{ flex:1 }}>
+                <div style={{ fontSize:12, fontWeight:600, color:C.textSec }}>{b.label}</div>
+                {b.key==="pmi" && <div style={{ fontSize:9, color:C.textMuted }}>{pmiRateAnnual}% /yr · FICO {creditScore}+</div>}
+                {b.key==="tax" && <div style={{ fontSize:9, color:C.textMuted }}>{effectiveTaxRate.toFixed(2)}% · {currentPreset.l}</div>}
+                {b.key==="ins" && <div style={{ fontSize:9, color:C.textMuted }}>{propType==="condo"||propType==="coop"?"HO-6":"HO-3"}</div>}
+              </div>
+              <div style={{ fontSize:14, fontWeight:700, fontFamily:MONO, color:b.color }}>{fmtD(b.value)}</div>
+            </div>
+          ))}
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"10px 0 0", borderTop:"2px solid "+C.arm, marginTop:6 }}>
+            <div style={{ fontSize:13, fontWeight:700 }}>{isEn?"Total Monthly":"月供总计"}</div>
+            <div style={{ fontSize:18, fontWeight:700, fontFamily:MONO, color:C.arm }}>{fmtD(totalMonthly)}</div>
+          </div>
+        </div>
+
+        {/* Advanced overrides */}
+        <div style={{ background:C.cardAlt, borderRadius:14, padding:14, marginBottom:10 }}>
+          <div style={{ fontSize:11, color:C.textDim, fontWeight:700, marginBottom:8 }}>{isEn?"\u{1F527} Fine-tune (optional)":"\u{1F527} 精细调整（可选）"}</div>
+          {propType !== "coop" && <div style={{ marginBottom:8 }}>
+            <div style={{ display:"flex", justifyContent:"space-between", marginBottom:3 }}>
+              <span style={{ fontSize:10, color:C.textSec }}>{isEn?"Effective Tax Rate":"有效地税率"} <span style={{ fontSize:8, color:C.textMuted }}>{isEn?"(on market value)":"(基于市场价)"}</span></span>
+              <span style={{ fontSize:11, fontFamily:MONO, fontWeight:600 }}>{effectiveTaxRate.toFixed(2)}% = {fmtD(taxMonthly)}/mo</span>
+            </div>
+            <input type="range" min={0.2} max={3.0} step={0.05} value={effectiveTaxRate} onChange={e => { setCustomTaxRate(Number(e.target.value)); setLocationPreset("custom"); }}
+              style={{ width:"100%", height:4, borderRadius:2, outline:"none", appearance:"none", WebkitAppearance:"none", cursor:"pointer", background:`linear-gradient(to right,${C.fixed} 0%,${C.fixed} ${((effectiveTaxRate-0.2)/2.8)*100}%,${C.border} ${((effectiveTaxRate-0.2)/2.8)*100}%,${C.border} 100%)` }} />
+            <div style={{ fontSize:8, color:C.textMuted, marginTop:3, lineHeight:1.4 }}>{isEn?"Tip: This is EFFECTIVE rate (tax ÷ market value). Due to assessment caps/ratios, actual rate is often far from nominal rate. Check your local tax bill.":"提示：这是有效税率（地税÷市场价）。由于评估比例和封顶，实际税率通常与名义税率差很远。查你的实际税单最准。"}</div>
+          </div>}
+          <div style={{ marginBottom:8 }}>
+            <div style={{ display:"flex", justifyContent:"space-between", marginBottom:3 }}>
+              <span style={{ fontSize:10, color:C.textSec }}>{isEn?"Insurance /mo":"保险 /月"}</span>
+              <span style={{ fontSize:11, fontFamily:MONO, fontWeight:600 }}>{fmtD(insMonthly)}{insOverride===null?<span style={{ fontSize:8, color:C.textMuted }}>{isEn?" (auto)":" (自动)"}</span>:null}</span>
+            </div>
+            <input type="range" min={0} max={500} step={10} value={insMonthly} onChange={e => setInsOverride(Number(e.target.value))}
+              style={{ width:"100%", height:4, borderRadius:2, outline:"none", appearance:"none", WebkitAppearance:"none", cursor:"pointer", background:`linear-gradient(to right,${C.purple} 0%,${C.purple} ${(insMonthly/500)*100}%,${C.border} ${(insMonthly/500)*100}%,${C.border} 100%)` }} />
+          </div>
+          {propType !== "sfh" || hoaMonthly > 0 ? <div style={{ marginBottom:4 }}>
+            <div style={{ display:"flex", justifyContent:"space-between", marginBottom:3 }}>
+              <span style={{ fontSize:10, color:C.textSec }}>{isEn?(propType==="coop"?"Maintenance /mo":"HOA /mo"):(propType==="coop"?"管理费 /月":"HOA /月")}</span>
+              <span style={{ fontSize:11, fontFamily:MONO, fontWeight:600 }}>{fmtD(hoaMonthly)}{hoaOverride===null?<span style={{ fontSize:8, color:C.textMuted }}>{isEn?" (est.)":" (估)"}</span>:null}</span>
+            </div>
+            <input type="range" min={0} max={propType==="coop"?5000:2500} step={25} value={hoaMonthly} onChange={e => setHoaOverride(Number(e.target.value))}
+              style={{ width:"100%", height:4, borderRadius:2, outline:"none", appearance:"none", WebkitAppearance:"none", cursor:"pointer", background:`linear-gradient(to right,${C.danger} 0%,${C.danger} ${(hoaMonthly/(propType==="coop"?5000:2500))*100}%,${C.border} ${(hoaMonthly/(propType==="coop"?5000:2500))*100}%,${C.border} 100%)` }} />
+          </div> : null}
+        </div>
+
+        {/* Cash to close + Income */}
+        <div style={{ display:"flex", gap:8, marginBottom:14 }}>
+          <div style={{ flex:1, padding:12, background:C.fixedLight, borderRadius:12, textAlign:"center" }}>
+            <div style={{ fontSize:9, color:C.fixed, fontWeight:700, letterSpacing:0.5 }}>{isEn?"CASH TO CLOSE":"过户现金"}</div>
+            <div style={{ fontSize:18, fontWeight:700, fontFamily:MONO, color:C.fixed, margin:"4px 0" }}>{fmtD(cashToClose)}</div>
+            <div style={{ fontSize:9, color:C.textMuted }}>{fmtD(downAmount)} + ~{fmtD(closingCost)}</div>
+          </div>
+          <div style={{ flex:1, padding:12, background:C.purpleLight, borderRadius:12, textAlign:"center" }}>
+            <div style={{ fontSize:9, color:C.purple, fontWeight:700, letterSpacing:0.5 }}>{isEn?"INCOME (PRE-TAX)":"所需年收入(税前)"}</div>
+            <div style={{ fontSize:18, fontWeight:700, fontFamily:MONO, color:C.purple, margin:"4px 0" }}>{fmtD(incomeNeeded)}</div>
+            <div style={{ fontSize:9, color:C.textMuted }}>{isEn?"/yr pre-tax · 28%":"/年税前 · 28%"}</div>
+          </div>
+        </div>
+
+        <GlossarySection terms={MORTGAGE_GLOSSARY} en={isEn} />
+      </div>
+      <BrandingFooter />
+    </div>
+  );
+}
+
+
 const POINTS_GLOSSARY = [
   { term:"Discount Points", cn:"买点/折扣点数", desc:"过户时预付的费用，用于换取更低利率。1点=贷款额的1%，通常可降低利率约0.25%。本质是\"预付利息\"。", descEn:"Upfront fee to buy a lower rate. 1 point = 1% of loan amount, typically reduces rate by ~0.25%." },
   { term:"APR", cn:"年化实际利率", desc:"将买点费用分摊到整个贷款期限后的等效年利率。APR越接近票面利率，说明前期费用越低。", descEn:"Effective annual rate after amortizing point costs. The closer APR is to note rate, the lower the upfront costs." },
   { term:"Break-Even", cn:"回本时间", desc:"买点的前期费用通过月供节省回收所需的时间。如果计划在回本前卖房或再融资，买点不划算。", descEn:"Time for monthly savings to recoup point costs. If you sell/refi before break-even, buying points is not worth it." },
   { term:"Note Rate", cn:"票面利率", desc:"贷款合同上的利率，用来计算月供。买了点后这个利率就是降低后的利率。", descEn:"The contract interest rate used to calculate your monthly payment. After buying points, this is the reduced rate." },
   { term:"Base Rate", cn:"基础利率(Par Rate)", desc:"不买任何点数时的原始利率。", descEn:"The original rate with zero discount points (par rate)." },
-  { term:"Total Cost", cn:"总成本", desc:"累计利息 + 买点预付费用。用来对比不同方案的真实总花费。", descEn:"Cumulative interest + upfront point costs. The true total expense for comparing options." },
+  { term:"Total Cost", cn:"总成本", desc:"累计利息 + 买点预付费用 + PMI（如适用）。用来对比不同方案的真实总花费。", descEn:"Cumulative interest + upfront point costs + PMI if applicable. The true total expense for comparing options." },
+  { term:"PMI", cn:"私人抵押贷款保险", desc:"当首付<20%（LTV>80%）时，传统贷款要求缴纳的保险费，保护贷款机构。年费率0.19%-1.86%不等，取决于信用评分和LTV。月付金额=贷款额×PMI率÷12。根据HPA法案，当贷款余额降至原房价的78%时自动取消，80%时可申请取消。", descEn:"Private Mortgage Insurance. Required on conventional loans when down payment < 20% (LTV > 80%). Annual rate 0.19%-1.86% based on FICO and LTV. Monthly = loan × rate ÷ 12. Per HPA, auto-cancels at 78% LTV of original value; borrower can request cancel at 80% LTV." },
+  { term:"LTV", cn:"贷款价值比", desc:"贷款余额÷房价的比例。80%以下无需PMI。LTV越低，月供风险越低，贷款条件越优。", descEn:"Loan-to-Value ratio = loan balance ÷ home value. No PMI needed below 80%. Lower LTV = better terms and no mortgage insurance required." },
 ];
 
 
@@ -856,11 +1350,30 @@ function PointsAnalyzer({ onBack, lang }) {
     { id: 1, rate: 7.000, points: 0 },
     { id: 2, rate: 6.750, points: 0.5 },
   ]);
+  const [creditScore, setCreditScore] = React.useState("740");
   const [showReport, setShowReport] = React.useState(false);
   const [reportLang, setReportLang] = React.useState(lang);
   const [minWarn, setMinWarn] = React.useState(false);
   const nextId = React.useRef(10);
   const totalMonths = termYears * 12;
+
+  // PMI Logic: only applies when LTV > 80% (price mode, downPct < 20)
+  const initLTV = loanMode === "price" ? (loanAmount / homePrice) * 100 : 0;
+  const pmiApplies = loanMode === "price" && initLTV > 80;
+  // MGIC-style PMI rate table: [LTV bucket][credit bucket]
+  const PMI_RATES = {
+    "760":{"97":0.55,"95":0.41,"90":0.30,"85":0.19},
+    "740":{"97":0.73,"95":0.58,"90":0.41,"85":0.27},
+    "720":{"97":0.85,"95":0.70,"90":0.50,"85":0.35},
+    "700":{"97":1.05,"95":0.85,"90":0.65,"85":0.45},
+    "680":{"97":1.25,"95":1.05,"90":0.85,"85":0.60},
+    "660":{"97":1.55,"95":1.35,"90":1.10,"85":0.80},
+    "640":{"97":1.80,"95":1.55,"90":1.30,"85":1.00},
+    "620":{"97":1.86,"95":1.65,"90":1.45,"85":1.15},
+  };
+  const ltvBucket = initLTV > 95 ? "97" : initLTV > 90 ? "95" : initLTV > 85 ? "90" : "85";
+  const pmiRateAnnual = pmiApplies ? (PMI_RATES[creditScore]?.[ltvBucket] || 0.73) : 0;
+  const pmiCancelBalance = loanMode === "price" ? homePrice * 0.78 : 0; // HPA auto-cancel at 78% LTV
 
   const removeOption = (id) => {
     if (rateOptions.length <= 2) { setMinWarn(true); setTimeout(() => setMinWarn(false), 2000); return; }
@@ -882,29 +1395,39 @@ function PointsAnalyzer({ onBack, lang }) {
       const cost = opt.points * 0.01 * loanAmount;
       const pmt = pmtCalc(opt.rate, totalMonths, loanAmount);
       const apr = calcAPR(opt.rate, loanAmount, cost, totalMonths);
-      const monthly = []; let bal = loanAmount, ti = 0;
+      const monthlyPMI = pmiApplies ? (loanAmount * pmiRateAnnual / 100 / 12) : 0;
+      const monthly = []; let bal = loanAmount, ti = 0, tpmi = 0, pmiOff = 0;
       for (let m = 1; m <= totalMonths; m++) {
-        const ip = bal * (opt.rate / 100 / 12); bal = Math.max(0, bal - (pmt - ip)); ti += ip;
-        monthly.push({ totalInterest: ti, balance: bal });
+        const ip = bal * (opt.rate / 100 / 12);
+        bal = Math.max(0, bal - (pmt - ip));
+        ti += ip;
+        // PMI applies until scheduled balance drops to 78% of home price
+        const pmiActive = pmiApplies && bal > pmiCancelBalance;
+        if (pmiActive) { tpmi += monthlyPMI; }
+        else if (pmiOff === 0 && pmiApplies) { pmiOff = m; }
+        monthly.push({ totalInterest: ti, balance: bal, totalPMI: tpmi, pmiActive: pmiActive });
       }
+      if (pmiApplies && pmiOff === 0) pmiOff = totalMonths; // never cancelled within term
       const save = basePmt - pmt;
       const beM = (save > 0 && cost > 0) ? Math.ceil(cost / save) : null;
       const isBase = opt.id === base.id;
       return {
         id: opt.id, points: opt.points, noteRate: opt.rate, pointCost: cost, payment: pmt, apr: apr,
+        monthlyPMI: monthlyPMI, pmiOffMonth: pmiOff, pmiOffYears: pmiOff ? (pmiOff / 12).toFixed(1) : null,
         monthlySaving: save, breakEvenMonths: beM, breakEvenYears: beM ? (beM / 12).toFixed(1) : null,
         monthly: monthly, color: isBase ? C.danger : PT_COLORS[idx % PT_COLORS.length],
         label: isBase ? (fmtP(opt.rate) + " / 0" + (isEn ? "pt" : "\u70B9")) : (fmtP(opt.rate) + " / " + opt.points + (isEn ? "pt" : "\u70B9")),
       };
     });
-  }, [rateOptions, loanAmount, termYears, isEn]);
+  }, [rateOptions, loanAmount, termYears, isEn, pmiApplies, pmiRateAnnual, pmiCancelBalance]);
 
   const curMonth = Math.min(selectedMonth, totalMonths);
   const holdYrs = curMonth / 12;
   const holdLabel = holdYrs % 1 === 0 ? (holdYrs + (isEn ? "yr" : "\u5E74")) : (holdYrs.toFixed(1) + (isEn ? "yr" : "\u5E74"));
 
   const bestAtMonth = scenarios.reduce((best, s) => {
-    const tc = s.monthly[curMonth - 1].totalInterest + s.pointCost;
+    const m = s.monthly[curMonth - 1];
+    const tc = m.totalInterest + s.pointCost + (m.totalPMI || 0);
     return (!best || tc < best.tc) ? { ...s, tc: tc } : best;
   }, null);
 
@@ -933,12 +1456,17 @@ function PointsAnalyzer({ onBack, lang }) {
       L.push(rIsEn ? "DISCOUNT POINTS ANALYSIS" : "\u6298\u6263\u70B9\u6570\u5206\u6790");
       L.push("");
       L.push((rIsEn ? "Loan: " : "\u8D37\u6B3E\u989D\uFF1A") + fmtD(loanAmount) + " | " + (rIsEn ? "Term: " : "\u671F\u9650\uFF1A") + termYears + (rIsEn ? "yr" : "\u5E74") + " | " + (rIsEn ? "Hold: " : "\u6301\u6709\uFF1A") + holdLabel);
+      if (pmiApplies) {
+        L.push((rIsEn ? "PMI: " : "PMI: ") + pmiRateAnnual + "%/yr (LTV " + initLTV.toFixed(1) + "%, FICO " + creditScore + "+) = " + fmtD(Math.round(loanAmount*pmiRateAnnual/100/12)) + "/mo");
+      }
       L.push("");
       scenarios.forEach(s => {
-        const tc = s.monthly[curMonth - 1].totalInterest + s.pointCost;
+        const m = s.monthly[curMonth - 1];
+        const tc = m.totalInterest + s.pointCost + (m.totalPMI || 0);
         const best = bestAtMonth && tc <= bestAtMonth.tc + 1;
         const be = s.breakEvenYears ? (s.breakEvenYears + (rIsEn ? "yr" : "\u5E74")) : "N/A";
-        L.push((best ? "\u2605 " : "\u25BA ") + fmtP(s.noteRate) + " / " + s.points + (rIsEn ? "pt" : "\u70B9") + ": " + fmtD(s.payment) + "/mo | APR " + fmtP(s.apr) + " | B/E " + be + " | " + (rIsEn ? "Total " : "\u603B") + fmtD(tc) + (best ? (rIsEn ? " \u2190 BEST" : " \u2190 \u6700\u4F18") : ""));
+        const pmiStr = pmiApplies ? (" | PMI off " + s.pmiOffYears + (rIsEn?"yr":"\u5E74") + " ($"+fmt(Math.round(m.totalPMI||0))+" paid)") : "";
+        L.push((best ? "\u2605 " : "\u25BA ") + fmtP(s.noteRate) + " / " + s.points + (rIsEn ? "pt" : "\u70B9") + ": " + fmtD(s.payment) + "/mo | APR " + fmtP(s.apr) + " | B/E " + be + pmiStr + " | " + (rIsEn ? "Total " : "\u603B") + fmtD(tc) + (best ? (rIsEn ? " \u2190 BEST" : " \u2190 \u6700\u4F18") : ""));
       });
       L.push("");
       L.push(rIsEn ? "Disclaimer: For informational purposes only." : "\u58F0\u660E\uFF1A\u4EC5\u4F9B\u53C2\u8003\u3002");
@@ -967,12 +1495,13 @@ function PointsAnalyzer({ onBack, lang }) {
         <div style={{ height:1.5, background:"linear-gradient(90deg,"+C.arm+","+C.fixed+")", borderRadius:1, marginBottom:10 }} />
         <table style={{ width:"100%", borderCollapse:"collapse", fontSize:9, marginBottom:8 }}>
           <thead><tr style={{ background:C.cardAlt }}>
-            {(rIsEn ? ["Option","Rate","APR","Pmt","Save","Cost","B/E","Total"] : ["方案","利率","APR","月供","月省","费用","回本","总成本"]).map(h =>
+            {(rIsEn ? (pmiApplies ? ["Option","Rate","APR","Pmt","PMI","Cost","B/E","Total"] : ["Option","Rate","APR","Pmt","Save","Cost","B/E","Total"]) : (pmiApplies ? ["方案","利率","APR","月供","PMI","费用","回本","总成本"] : ["方案","利率","APR","月供","月省","费用","回本","总成本"])).map(h =>
               <th key={h} style={{ padding:"5px 3px", textAlign:"right", fontWeight:600, color:C.textDim, borderBottom:"1px solid "+C.border, fontSize:8 }}>{h}</th>
             )}
           </tr></thead>
           <tbody>{scenarios.map((s, i) => {
-            const tc = s.monthly[curMonth - 1].totalInterest + s.pointCost;
+            const m = s.monthly[curMonth - 1];
+            const tc = m.totalInterest + s.pointCost + (m.totalPMI || 0);
             const best = bestAtMonth && tc <= bestAtMonth.tc + 1;
             return (
               <tr key={i} style={{ background: best ? C.fixedLight : "transparent" }}>
@@ -980,7 +1509,7 @@ function PointsAnalyzer({ onBack, lang }) {
                 <td style={{ padding:"5px 3px", textAlign:"right", fontFamily:MONO }}>{fmtP(s.noteRate)}</td>
                 <td style={{ padding:"5px 3px", textAlign:"right", fontFamily:MONO }}>{fmtP(s.apr)}</td>
                 <td style={{ padding:"5px 3px", textAlign:"right", fontFamily:MONO }}>{fmtD(s.payment)}</td>
-                <td style={{ padding:"5px 3px", textAlign:"right", fontFamily:MONO, color:s.monthlySaving > 0 ? C.arm : C.textMuted }}>{s.points === 0 ? "\u2014" : fmtD(s.monthlySaving)}</td>
+                {pmiApplies ? <td style={{ padding:"5px 3px", textAlign:"right", fontFamily:MONO, color:C.warn, fontSize:8 }}>{fmtD(Math.round(m.totalPMI||0))}<br/><span style={{ fontSize:7, color:C.textMuted }}>{s.pmiOffYears}{rIsEn?"y":"\u5E74"}</span></td> : <td style={{ padding:"5px 3px", textAlign:"right", fontFamily:MONO, color:s.monthlySaving > 0 ? C.arm : C.textMuted }}>{s.points === 0 ? "\u2014" : fmtD(s.monthlySaving)}</td>}
                 <td style={{ padding:"5px 3px", textAlign:"right", fontFamily:MONO }}>{s.pointCost > 0 ? fmtD(s.pointCost) : "\u2014"}</td>
                 <td style={{ padding:"5px 3px", textAlign:"right", fontFamily:MONO, color:s.breakEvenMonths && curMonth >= s.breakEvenMonths ? C.arm : C.textDim }}>{!s.breakEvenMonths ? "\u2014" : s.breakEvenYears + (rIsEn ? "yr" : "\u5E74")}</td>
                 <td style={{ padding:"5px 3px", textAlign:"right", fontFamily:MONO, fontWeight:600, color:best ? C.fixed : C.text }}>{fmtD(tc)}</td>
@@ -1004,7 +1533,7 @@ function PointsAnalyzer({ onBack, lang }) {
   return (
     <div style={{ fontFamily:FONT, background:C.bg, minHeight:"100vh", color:C.text, maxWidth:480, margin:"0 auto", paddingTop:56, paddingBottom:32 }}>
       <GlobalStyles />
-      <div style={{ position:"fixed", top:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, zIndex:100, background:"transparent", borderBottom:"none", boxShadow:"none" }}>
+      <div style={{ position:"fixed", top:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, zIndex:100, background:"rgba(255,255,255,0.15)", backdropFilter:"blur(22px) saturate(1.4)", WebkitBackdropFilter:"blur(22px) saturate(1.4)", borderBottom:"1px solid rgba(255,255,255,0.3)", boxShadow:"0 1px 12px rgba(30,60,30,0.04)" }}>
         <div style={{ padding:"10px 16px", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
           <div style={{ display:"flex", alignItems:"center", gap:10 }}>
             <button onClick={onBack} style={{ background:"none", border:"none", cursor:"pointer", fontSize:20, color:C.textDim }}>&#8249;</button>
@@ -1043,7 +1572,7 @@ function PointsAnalyzer({ onBack, lang }) {
             </div>
             <div style={{ padding:"8px 12px", background:C.fixedLight, borderRadius:10, fontSize:12, fontWeight:600, color:C.fixed, textAlign:"center" }}>{isEn?"Loan Amount":"贷款金额"}: {fmtD(loanAmount)}</div>
           </> : <AmountSlider label={isEn?"Loan Amount":"贷款金额"} value={directLoan} onChange={setDirectLoan} min={100000} max={2000000} step={25000} color={C.fixed} />}
-          <div style={{ marginBottom:16 }}>
+          <div style={{ marginBottom:12 }}>
             <div style={{ fontSize:12, color:C.textSec, fontWeight:600, marginBottom:6 }}>{isEn ? "Loan Term" : "\u8D37\u6B3E\u671F\u9650"}</div>
             <div style={{ display:"flex", gap:6, background:C.cardAlt, borderRadius:12, padding:3 }}>
               {[15,20,25,30].map(y => {
@@ -1052,6 +1581,26 @@ function PointsAnalyzer({ onBack, lang }) {
               })}
             </div>
           </div>
+          {/* PMI Section - only shows when LTV > 80% */}
+          {pmiApplies && <div style={{ marginBottom:14, padding:"10px 12px", background:C.warnLight, borderRadius:12, border:"1px solid "+C.warn+"25" }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+              <div style={{ fontSize:12, fontWeight:700, color:C.warn }}>{isEn?"\u26A0 PMI Required":"\u26A0 需缴PMI"} <span style={{ fontSize:10, color:C.textMuted, fontWeight:500 }}>(LTV {initLTV.toFixed(1)}%)</span></div>
+              <div style={{ fontSize:11, fontWeight:700, fontFamily:MONO, color:C.warn }}>{pmiRateAnnual}% /yr</div>
+            </div>
+            <div style={{ fontSize:10, color:C.textSec, fontWeight:600, marginBottom:4 }}>{isEn?"Credit Score (FICO)":"信用评分 (FICO)"}</div>
+            <select value={creditScore} onChange={e => setCreditScore(e.target.value)} style={{ width:"100%", padding:"6px 4px", borderRadius:8, border:"1px solid "+C.border, fontSize:11, fontFamily:FONT, background:C.white, outline:"none" }}>
+              <option value="760">760+ ({isEn?"Excellent":"优秀"})</option>
+              <option value="740">740-759 ({isEn?"Very Good":"很好"})</option>
+              <option value="720">720-739 ({isEn?"Good":"良好"})</option>
+              <option value="700">700-719 ({isEn?"Above Avg":"中上"})</option>
+              <option value="680">680-699 ({isEn?"Average":"一般"})</option>
+              <option value="660">660-679 ({isEn?"Fair":"中下"})</option>
+              <option value="640">640-659 ({isEn?"Below Avg":"偏低"})</option>
+              <option value="620">620-639 ({isEn?"Poor":"较差"})</option>
+            </select>
+            <div style={{ fontSize:9, color:C.textMuted, marginTop:6, lineHeight:1.4 }}>{isEn?`Monthly PMI ~${fmtD(Math.round(loanAmount*pmiRateAnnual/100/12))}. Auto-cancels at 78% LTV (balance \u2264 ${fmtD(pmiCancelBalance)}).`:`PMI月费约${fmtD(Math.round(loanAmount*pmiRateAnnual/100/12))}。LTV降至78%（余额\u2264${fmtD(pmiCancelBalance)}）自动取消。`}</div>
+          </div>}
+          <div style={{ marginBottom:16 }}></div>
 
           {/* Rate Options */}
           <div style={{ fontSize:13, color:C.text, fontWeight:600, marginBottom:8 }}>{isEn ? "Rate Options" : "\u5229\u7387\u65B9\u6848"} <span style={{ fontSize:10, color:C.textMuted }}>{isEn ? "2-7 options" : "2-7\u4E2A\u65B9\u6848"}</span></div>
@@ -1103,17 +1652,19 @@ function PointsAnalyzer({ onBack, lang }) {
         <div style={{ background:C.card, border:"1px solid "+C.borderLight, borderRadius:18, padding:18, boxShadow:C.shadow }}>
           <div style={{ fontSize:13, fontWeight:700, marginBottom:14 }}>{isEn ? "Comparison" : "\u65B9\u6848\u5BF9\u6BD4"} <span style={{ fontSize:10, color:C.textMuted, fontWeight:400 }}>{holdLabel}</span></div>
           {scenarios.map((s, i) => {
-            const tc = s.monthly[curMonth - 1].totalInterest + s.pointCost;
+            const m = s.monthly[curMonth - 1];
+            const tc = m.totalInterest + s.pointCost + (m.totalPMI || 0);
             const best = bestAtMonth && tc <= bestAtMonth.tc + 1;
+            const totalMoPmt = s.payment + (m.pmiActive ? s.monthlyPMI : 0);
             return (
               <div key={i} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"8px 0", borderBottom:"1px solid "+C.borderLight }}>
                 <div>
                   <div style={{ fontSize:12, fontWeight:700, color:s.color, fontFamily:MONO }}>{s.label}</div>
-                  <div style={{ fontSize:10, color:C.textMuted }}>{fmtD(s.payment)}/mo {s.monthlySaving > 0 ? ("(" + (isEn ? "save " : "\u7701") + fmtD(s.monthlySaving) + ")") : ""}</div>
+                  <div style={{ fontSize:10, color:C.textMuted }}>{fmtD(totalMoPmt)}/mo {pmiApplies && m.pmiActive ? ("(P&I "+fmtD(s.payment)+"+PMI "+fmtD(s.monthlyPMI)+")") : (s.monthlySaving > 0 ? ("(" + (isEn ? "save " : "\u7701") + fmtD(s.monthlySaving) + ")") : "")}</div>
                 </div>
                 <div style={{ textAlign:"right" }}>
                   <div style={{ fontSize:14, fontWeight:700, color:best ? C.fixed : C.text, fontFamily:MONO }}>{fmtD(tc)}</div>
-                  <div style={{ fontSize:9, color:C.textDim }}>{s.breakEvenYears ? ("B/E " + s.breakEvenYears + (isEn ? "yr" : "\u5E74")) : ""}{best ? (isEn ? " \u2B50 BEST" : " \u2B50 \u6700\u4F18") : ""}</div>
+                  <div style={{ fontSize:9, color:C.textDim }}>{s.breakEvenYears ? ("B/E " + s.breakEvenYears + (isEn ? "yr" : "\u5E74")) : ""}{pmiApplies && s.pmiOffYears ? (" \u00B7 PMI off "+s.pmiOffYears+(isEn?"yr":"\u5E74")) : ""}{best ? (isEn ? " \u2B50 BEST" : " \u2B50 \u6700\u4F18") : ""}</div>
                 </div>
               </div>
             );
@@ -1291,7 +1842,7 @@ function RefiAnalyzer({ onBack, lang }) {
   return (
     <div style={{ fontFamily:FONT, background:C.bg, minHeight:"100vh", color:C.text, maxWidth:480, margin:"0 auto", paddingTop:56, paddingBottom:32, WebkitFontSmoothing:"antialiased" }}>
       <GlobalStyles />
-      <div style={{ position:"fixed", top:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, zIndex:100, background:"transparent", borderBottom:"none", boxShadow:"none" }}>
+      <div style={{ position:"fixed", top:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, zIndex:100, background:"rgba(255,255,255,0.15)", backdropFilter:"blur(22px) saturate(1.4)", WebkitBackdropFilter:"blur(22px) saturate(1.4)", borderBottom:"1px solid rgba(255,255,255,0.3)", boxShadow:"0 1px 12px rgba(30,60,30,0.04)" }}>
         <div style={{ padding:"10px 16px", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
           <div style={{ display:"flex", alignItems:"center", gap:10 }}>
             <button onClick={onBack} style={{ background:"none", border:"none", cursor:"pointer", fontSize:20, color:C.textDim, padding:"2px 6px" }}>‹</button>
@@ -1731,7 +2282,7 @@ function ExchangeAnalyzer({ onBack, lang }) {
   return (
     <div style={{ fontFamily:FONT, background:C.bg, minHeight:"100vh", color:C.text, maxWidth:480, margin:"0 auto", paddingTop:56, paddingBottom:32 }}>
       <GlobalStyles />
-      <div style={{ position:"fixed", top:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, zIndex:100, background:"transparent", borderBottom:"none", boxShadow:"none" }}>
+      <div style={{ position:"fixed", top:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, zIndex:100, background:"rgba(255,255,255,0.15)", backdropFilter:"blur(22px) saturate(1.4)", WebkitBackdropFilter:"blur(22px) saturate(1.4)", borderBottom:"1px solid rgba(255,255,255,0.3)", boxShadow:"0 1px 12px rgba(30,60,30,0.04)" }}>
         <div style={{ padding:"10px 16px", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
           <div style={{ display:"flex", alignItems:"center", gap:10 }}>
             <button onClick={onBack} style={{ background:"none", border:"none", cursor:"pointer", fontSize:20, color:C.textDim }}>&#8249;</button>
@@ -1944,6 +2495,7 @@ function App() {
   const [page, setPage] = React.useState("home");
   const [lang, setLang] = React.useState("cn"); // "cn" or "en"
 
+  if (page === "estimate") return <MortgageEstimator onBack={() => setPage("home")} lang={lang} />;
   if (page === "arm") return <ArmNavigator onBack={() => setPage("home")} lang={lang} />;
   if (page === "points") return <PointsAnalyzer onBack={() => setPage("home")} lang={lang} />;
   if (page === "refi") return <RefiAnalyzer onBack={() => setPage("home")} lang={lang} />;
